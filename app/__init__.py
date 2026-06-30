@@ -5,8 +5,6 @@ from flask import Flask
 
 load_dotenv()
 
-from app.config import resolve_database_url
-
 
 def create_app():
     app = Flask(
@@ -15,7 +13,6 @@ def create_app():
         static_folder='../static'
     )
     app.config.from_object('app.config.Config')
-    app.config['SQLALCHEMY_DATABASE_URI'] = resolve_database_url()
 
     upload_folder = tempfile.mkdtemp(prefix='pdfmerger_')
     app.config['UPLOAD_FOLDER'] = upload_folder

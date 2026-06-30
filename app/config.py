@@ -5,27 +5,40 @@ from datetime import timedelta
 basedir = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
 
 
-def resolve_database_url():
+def _resolve_database_url():
     url = os.environ.get('DATABASE_URL')
     if url:
-        if url.startswith('postgres://'):
-            url = url.replace('postgres://', 'postgresql://', 1)
-        if 'sslmode=require' not in url and 'localhost' not in url and 'postgres:' not in url:
-            suffix = '&' if '?' in url else '?'
-            url += suffix + 'sslmode=require'
+        url = url.replace('postgres://', 'postgresql://', 1)
+        needs_ssl = 'sslmode=require' not in url
+        needs_ssl = needs_ssl and 'localhost' not in url
+        needs_ssl = needs_ssl and not url.startswith('postgresql://postgres:')
+        if needs_ssl:
+            url += ('&' if '?' in url else '?') + 'sslmode=require'
         return url
     return f'sqlite:///{os.path.join(basedir, "data.db")}'
 
 
+def _session_lifetime():
+    days = int(os.environ.get('SESSION_LIFETIME_DAYS', 30))
+    return timedelta(days=days)
+
+
+def _max_content_length():
+    raw = os.environ.get('MAX_CONTENT_LENGTH')
+    if raw:
+        return int(raw)
+    return 500 * 1024 * 1024
+
+
 class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
-    MAX_CONTENT_LENGTH = 500 * 1024 * 1024
+    MAX_CONTENT_LENGTH = _max_content_length()
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-    SQLALCHEMY_DATABASE_URI = resolve_database_url()
+    SQLALCHEMY_DATABASE_URI = _resolve_database_url()
 
     SESSION_TYPE = 'sqlalchemy'
     SESSION_SQLALCHEMY_TABLE = 'sessions'
     SESSION_PERMANENT = True
-    PERMANENT_SESSION_LIFETIME = timedelta(days=30)
+    PERMANENT_SESSION_LIFETIME = _session_lifetime()
     SESSION_USE_SIGNER = True
     SESSION_KEY_PREFIX = 'pdfm:'
