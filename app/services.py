@@ -1,11 +1,9 @@
 import os
 import io
-import tempfile
 import shutil
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import RectangleObject
 from PIL import Image as PILImage
-import img2pdf
 import pikepdf
 
 
@@ -60,60 +58,6 @@ def parse_pages_to_remove(input_str, total):
             except ValueError:
                 continue
     return sorted(to_remove)
-
-
-def process_tiff_stream(tiff_path, quality, target_dpi, out_dir):
-    paths = []
-    basename = os.path.splitext(os.path.basename(tiff_path))[0]
-
-    with PILImage.open(tiff_path) as img:
-        n_frames = getattr(img, 'n_frames', 1)
-
-        for i in range(n_frames):
-            if hasattr(img, 'seek'):
-                img.seek(i)
-            page = img.copy()
-
-            orig_dpi = None
-            try:
-                x_res = int(page.info.get('dpi', (0, 0))[0] or 0)
-                if x_res > 0:
-                    orig_dpi = x_res
-            except Exception:
-                pass
-
-            if orig_dpi and target_dpi and orig_dpi > target_dpi:
-                ratio = target_dpi / orig_dpi
-                new_w = int(page.width * ratio)
-                new_h = int(page.height * ratio)
-                page = page.resize((new_w, new_h), PILImage.LANCZOS)
-
-            q_val = 92 if quality == 'high' else 75 if quality == 'balanced' else 85
-            out_path = os.path.join(out_dir, f'{basename}_p{i:04d}.jpg')
-
-            if page.mode in ('1', 'L', 'LA'):
-                if quality == 'lossless':
-                    out_path = os.path.join(out_dir, f'{basename}_p{i:04d}.png')
-                    if page.mode == '1':
-                        page = page.convert('L')
-                    page.save(out_path, format='PNG', optimize=True)
-                else:
-                    if page.mode == '1':
-                        page = page.convert('L')
-                    page.save(out_path, format='JPEG', quality=q_val, optimize=True)
-            else:
-                if page.mode == 'CMYK':
-                    page = page.convert('RGB')
-                elif page.mode == 'RGBA':
-                    bg = PILImage.new('RGB', page.size, (255, 255, 255))
-                    bg.paste(page, mask=page.split()[3])
-                    page = bg
-                elif page.mode != 'RGB':
-                    page = page.convert('RGB')
-                page.save(out_path, format='JPEG', quality=q_val, optimize=True)
-
-            paths.append(out_path)
-    return paths
 
 
 def compress_pdf(pdf_path, jpeg_quality, target_dpi, remove_meta, output_dir, logger=None):

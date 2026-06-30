@@ -1,10 +1,15 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 {% block title %}Convertir TIFF a PDF{% endblock %}
+
+{% block head_scripts %}
+<script src="https://unpkg.com/utif@3.1.0/UTIF.js"></script>
+<script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+{% endblock %}
 
 {% block content %}
 <div class="container">
-  <h1>Convertir TIFF a PDF comprimido</h1>
-  <p class="sub">Convierte planos escaneados (TIFF) a PDF con compresión. Ideal para archivos de cientos de MB.</p>
+  <h1>Convertir TIFF a PDF</h1>
+  <p class="sub">Convierte archivos TIFF a PDF directamente en tu dispositivo. Los archivos <strong>no se suben al servidor</strong>, todo se procesa en tu navegador.</p>
 
   <div id="alerts"></div>
 
@@ -22,21 +27,22 @@
     <div class="st">2. Configurar compresión</div>
     <div class="row">
       <div class="f">
-        <label for="qSelect">Calidad</label>
+        <label for="qSelect">Calidad JPEG</label>
         <select id="qSelect">
-          <option value="high">Alta calidad (JPEG Q92)</option>
-          <option value="balanced">Balanceado (JPEG Q75)</option>
-          <option value="lossless">Sin pérdida (PNG)</option>
+          <option value="0.92">Alta (Q92)</option>
+          <option value="0.75" selected>Balanceado (Q75)</option>
+          <option value="0.5">Baja (Q50)</option>
+          <option value="0.3">Máxima (Q30)</option>
         </select>
       </div>
       <div class="f">
-        <label for="dpiSelect">Reducir resolución</label>
-        <select id="dpiSelect">
-          <option value="0">Original (sin reducir)</option>
-          <option value="300">300 DPI</option>
-          <option value="200">200 DPI</option>
-          <option value="150">150 DPI</option>
-          <option value="72">72 DPI</option>
+        <label for="scaleSelect">Reducir resolución</label>
+        <select id="scaleSelect">
+          <option value="1">Original (sin reducir)</option>
+          <option value="0.75">75%</option>
+          <option value="0.5">50%</option>
+          <option value="0.35">35%</option>
+          <option value="0.2">20%</option>
         </select>
       </div>
     </div>
@@ -44,19 +50,22 @@
 
   <button class="btn btn-p" id="btnConvert" onclick="convertir()" disabled>Convertir a PDF</button>
 
+  <div class="loading" id="loading"><div class="spinner"></div><span id="loadingText">Procesando...</span></div>
+  <div class="progress-bar" id="progressBar"><div class="fill" id="progressFill" style="width:0%"></div></div>
+
   <div id="pResult" class="sec hide">
     <div class="st">3. Resultado</div>
     <div class="result-card">
-      <div class="desc">Archivo original</div>
-      <div class="big" id="origSize">—</div>
-      <div class="desc" style="margin-top:8px;">PDF comprimido</div>
-      <div class="big-s" id="compSize">—</div>
-      <div class="desc" style="margin-top:8px;">Páginas: <strong id="pageCount">0</strong></div>
+      <div class="desc">Archivos originales</div>
+      <div class="big" id="origSize">&mdash;</div>
+      <div class="desc" style="margin-top:8px;">PDF generado</div>
+      <div class="big-s" id="compSize">&mdash;</div>
+      <div class="desc" style="margin-top:8px;">Paginas: <strong id="pageCount">0</strong></div>
       <div class="sz-bar">
         <span class="lbl" id="pctLbl">0%</span>
         <div class="bar"><div class="fill" id="szFill" style="width:0%"></div></div>
       </div>
-      <a class="btn btn-g" id="btnDwl" href="/download-convert">Descargar PDF</a>
+      <a class="btn btn-g" id="btnDwl" style="display:none">Descargar PDF</a>
       <button class="btn btn-o" onclick="resetear()" style="margin-top:8px;">Convertir otro</button>
     </div>
   </div>
@@ -69,8 +78,13 @@
   const fileInput = document.getElementById('fileInput');
   const fileList = document.getElementById('fileList');
   const btnConvert = document.getElementById('btnConvert');
+  const progressFill = document.getElementById('progressFill');
+  const loading = document.getElementById('loading');
+  const progressBar = document.getElementById('progressBar');
+  const loadingText = document.getElementById('loadingText');
   const alerts = document.getElementById('alerts');
   let selectedFiles = [];
+  let lastBlobUrl = null;
 
   dropZone.addEventListener('click', () => fileInput.click());
   dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
@@ -93,16 +107,16 @@
     for (const f of selectedFiles) {
       total += f.size;
       const li = document.createElement('li');
-      li.innerHTML = '<span><strong>' + f.name + '</strong> <span class="sz">(' + fmt(f.size) + ')</span></span> <span onclick="removeFile(\'' + f.name + ',' + f.size + '\')" style="cursor:pointer;color:#ef4444;font-weight:700">✕</span>';
+      li.innerHTML = '<span><strong>' + f.name + '</strong> <span class="sz">(' + fmt(f.size) + ')</span></span> <span onclick="removeFile(\'' + f.name + ',' + f.size + '\')" style="cursor:pointer;color:#ef4444;font-weight:700">\u2715</span>';
       fileList.appendChild(li);
     }
     const t = document.createElement('li');
     t.style.background = '#e8ecf8';
     t.innerHTML = '<span><strong>' + selectedFiles.length + ' archivo' + (selectedFiles.length !== 1 ? 's' : '') + '</strong> <span class="sz">(' + fmt(total) + ')</span></span>';
     fileList.appendChild(t);
-    document.getElementById('pctLbl').textContent = '0%';
-    document.getElementById('szFill').style.width = '0%';
     document.getElementById('pResult').classList.add('hide');
+    loading.classList.add('hide');
+    progressBar.classList.remove('active');
     btnConvert.disabled = selectedFiles.length === 0;
   }
 
@@ -110,29 +124,115 @@
   function fmt(b) { if (!b) return '0 B'; const u = ['B','KB','MB','GB']; let i=0, s=b; while (s>=1024 && i<u.length-1) { s/=1024; i++; } return s.toFixed(i>0?1:0)+' '+u[i]; }
   function al(m,t) { const d = document.createElement('div'); d.className='alert alert-'+t; d.textContent=m; alerts.appendChild(d); setTimeout(() => d.remove(), 6000); }
 
+  function setProgress(pct) {
+    progressFill.style.width = Math.min(100, Math.max(0, pct)) + '%';
+  }
+
   async function convertir() {
     if (!selectedFiles.length) return;
-    btnConvert.disabled = true; btnConvert.textContent = 'Convirtiendo...';
-    const fd = new FormData();
-    for (const f of selectedFiles) fd.append('files[]', f);
-    fd.append('quality', document.getElementById('qSelect').value);
-    const dpi = document.getElementById('dpiSelect').value;
-    if (dpi !== '0') fd.append('dpi', dpi);
+    if (typeof UTIF === 'undefined' || typeof PDFLib === 'undefined') {
+      al('Error: Librerias no cargadas. Recarga la pagina.', 'e');
+      return;
+    }
+    btnConvert.disabled = true;
+    loading.classList.remove('hide');
+    loading.classList.add('active');
+    progressBar.classList.add('active');
+    setProgress(0);
+
+    const quality = parseFloat(document.getElementById('qSelect').value);
+    const scale = parseFloat(document.getElementById('scaleSelect').value);
+    let totalOriginal = 0;
+    let allPages = [];
+    const pdfDoc = await PDFLib.PDFDocument.create();
+
     try {
-      const r = await fetch('/convert-tiff', { method: 'POST', body: fd });
-      const j = await r.json();
-      if (j.error) { al(j.error, 'e'); btnConvert.disabled = false; btnConvert.textContent = 'Convertir a PDF'; return; }
+      for (let fi = 0; fi < selectedFiles.length; fi++) {
+        const file = selectedFiles[fi];
+        totalOriginal += file.size;
+        loadingText.textContent = 'Decodificando ' + file.name + '...';
+        const buf = await file.arrayBuffer();
+        const ifds = UTIF.decode(buf);
+
+        for (let i = 0; i < ifds.length; i++) {
+          loadingText.textContent = 'Pagina ' + (i + 1) + ' de ' + file.name + '...';
+          setProgress(((fi + i / ifds.length) / selectedFiles.length) * 50);
+          UTIF.decodeImage(buf, ifds[i]);
+          const rgba = UTIF.toRGBA8(ifds[i]);
+          const srcW = ifds[i].width;
+          const srcH = ifds[i].height;
+          const dstW = Math.round(srcW * scale);
+          const dstH = Math.round(srcH * scale);
+
+          const srcCanvas = document.createElement('canvas');
+          srcCanvas.width = srcW;
+          srcCanvas.height = srcH;
+          const srcCtx = srcCanvas.getContext('2d');
+          const imageData = srcCtx.createImageData(srcW, srcH);
+          imageData.data.set(rgba);
+          srcCtx.putImageData(imageData, 0, 0);
+
+          const dstCanvas = document.createElement('canvas');
+          dstCanvas.width = dstW;
+          dstCanvas.height = dstH;
+          const dstCtx = dstCanvas.getContext('2d');
+          dstCtx.drawImage(srcCanvas, 0, 0, dstW, dstH);
+
+          const jpegBlob = await new Promise(resolve => dstCanvas.toBlob(resolve, 'image/jpeg', quality));
+          allPages.push({ blob: jpegBlob, w: dstW, h: dstH });
+        }
+      }
+
+      loadingText.textContent = 'Generando PDF...';
+      setProgress(60);
+      for (let i = 0; i < allPages.length; i++) {
+        const page = allPages[i];
+        const jpegBytes = await page.blob.arrayBuffer();
+        const image = await pdfDoc.embedJpg(jpegBytes);
+        const p = pdfDoc.addPage([image.width, image.height]);
+        p.drawImage(image, { x: 0, y: 0, width: image.width, height: image.height });
+        setProgress(60 + ((i + 1) / allPages.length) * 30);
+      }
+
+      setProgress(95);
+      const pdfBytes = await pdfDoc.save();
+      const pdfBlob = new Blob([pdfBytes], { type: 'application/pdf' });
+      const url = URL.createObjectURL(pdfBlob);
+
+      if (lastBlobUrl) URL.revokeObjectURL(lastBlobUrl);
+      lastBlobUrl = url;
+
+      const dlBtn = document.getElementById('btnDwl');
+      dlBtn.href = url;
+      dlBtn.download = 'tiff_convertido.pdf';
+      dlBtn.style.display = '';
+
       document.getElementById('pResult').classList.remove('hide');
-      document.getElementById('origSize').textContent = fmt(j.original_size);
-      document.getElementById('compSize').textContent = fmt(j.compressed_size);
-      document.getElementById('pageCount').textContent = j.pages;
-      const pct = j.original_size ? Math.min(100, (1 - j.compressed_size / j.original_size) * 100) : 0;
+      document.getElementById('origSize').textContent = fmt(totalOriginal);
+      document.getElementById('compSize').textContent = fmt(pdfBlob.size);
+      document.getElementById('pageCount').textContent = allPages.length;
+      const pct = totalOriginal ? Math.min(100, (1 - pdfBlob.size / totalOriginal) * 100) : 0;
       document.getElementById('pctLbl').textContent = '-' + pct.toFixed(1) + '%';
       document.getElementById('szFill').style.width = pct + '%';
       document.getElementById('szFill').className = pct < 30 ? 'fill partial' : 'fill';
-      al('PDF generado: ' + j.pages + ' págs, ' + fmt(j.compressed_size) + ' (-' + pct.toFixed(1) + '%)', 's');
-    } catch (e) { al('Error de conexión', 'e'); }
-    btnConvert.disabled = false; btnConvert.textContent = 'Convertir a PDF';
+
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'tiff_convertido.pdf';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+
+      setProgress(100);
+      al('PDF generado: ' + allPages.length + ' paginas, ' + fmt(pdfBlob.size) + ' (-' + pct.toFixed(1) + '%)', 's');
+    } catch (e) {
+      al('Error al convertir: ' + e.message, 'e');
+      console.error(e);
+    }
+    btnConvert.disabled = false;
+    loading.classList.remove('active');
+    loading.classList.add('hide');
+    progressBar.classList.remove('active');
   }
 
   function resetear() {
@@ -140,11 +240,15 @@
     fileList.innerHTML = '';
     btnConvert.disabled = true;
     document.getElementById('pResult').classList.add('hide');
-    document.getElementById('szFill').style.width = '0%';
-    document.getElementById('pctLbl').textContent = '0%';
-    document.getElementById('origSize').textContent = '—';
-    document.getElementById('compSize').textContent = '—';
+    loading.classList.remove('active');
+    loading.classList.add('hide');
+    progressBar.classList.remove('active');
+    setProgress(0);
+    document.getElementById('origSize').textContent = '\u2014';
+    document.getElementById('compSize').textContent = '\u2014';
     document.getElementById('pageCount').textContent = '0';
+    document.getElementById('btnDwl').style.display = 'none';
+    if (lastBlobUrl) { URL.revokeObjectURL(lastBlobUrl); lastBlobUrl = null; }
   }
 </script>
 {% endblock %}

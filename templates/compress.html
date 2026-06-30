@@ -27,9 +27,10 @@
       <div class="f">
         <label for="qSelect">Calidad de imágenes</label>
         <select id="qSelect">
-          <option value="high">Alta (Q85 - recomendado)</option>
-          <option value="balanced">Media (Q65 - máximo ahorro)</option>
-          <option value="low">Baja (Q45 - máxima reducción)</option>
+          <option value="high">Alta (Q55 - 30-40% reducción)</option>
+          <option value="balanced" selected>Media (Q35 - 50-60% reducción)</option>
+          <option value="low">Baja (Q20 - 60-70% reducción)</option>
+          <option value="max">Máxima (Q10 - 70-80% reducción)</option>
         </select>
       </div>
       <div class="f">
@@ -37,7 +38,7 @@
         <select id="dpiSelect">
           <option value="0">Original (sin reducir)</option>
           <option value="200">200 DPI</option>
-          <option value="150">150 DPI (recomendado)</option>
+          <option value="150" selected>150 DPI (recomendado)</option>
           <option value="100">100 DPI</option>
           <option value="72">72 DPI</option>
         </select>
@@ -65,7 +66,7 @@
         <span class="lbl" id="pctLbl">0%</span>
         <div class="bar"><div class="fill" id="szFill" style="width:0%"></div></div>
       </div>
-      <a class="btn btn-g" id="btnDwl" href="/download-compressed">Descargar ZIP</a>
+      <a class="btn btn-g" id="btnDwl" style="display:none">Descargar ZIP</a>
       <button class="btn btn-o" onclick="resetear()" style="margin-top:8px;">Comprimir otros</button>
     </div>
   </div>
@@ -80,6 +81,7 @@
   const btnCompress = document.getElementById('btnCompress');
   const alerts = document.getElementById('alerts');
   let selectedFiles = [];
+  let lastBlobUrl = null;
 
   dropZone.addEventListener('click', () => fileInput.click());
   dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
@@ -134,19 +136,41 @@
     fd.append('remove_meta', document.getElementById('removeMeta').checked ? '1' : '0');
     try {
       const r = await fetch('/compress-pdfs', { method: 'POST', body: fd });
-      const j = await r.json();
-      if (j.error) { al(j.error, 'e'); btnCompress.disabled = false; document.getElementById('loading').classList.remove('active'); document.getElementById('progressBar').classList.remove('active'); return; }
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        al(j.error || 'Error al comprimir', 'e');
+        btnCompress.disabled = false;
+        document.getElementById('loading').classList.remove('active');
+        document.getElementById('progressBar').classList.remove('active');
+        return;
+      }
+      const origSize = parseInt(r.headers.get('X-Original-Size')) || 0;
+      const compSize = parseInt(r.headers.get('X-Compressed-Size')) || 0;
+      const files = parseInt(r.headers.get('X-File-Count')) || 0;
+      const pages = parseInt(r.headers.get('X-Page-Count')) || 0;
       document.getElementById('pResult').classList.remove('hide');
-      document.getElementById('origSize').textContent = fmt(j.original_size);
-      document.getElementById('compSize').textContent = fmt(j.compressed_size);
-      document.getElementById('fileCount').textContent = j.files;
-      document.getElementById('pageCount').textContent = j.pages;
-      const pct = j.original_size ? Math.min(100, (1 - j.compressed_size / j.original_size) * 100) : 0;
+      document.getElementById('origSize').textContent = fmt(origSize);
+      document.getElementById('compSize').textContent = fmt(compSize);
+      document.getElementById('fileCount').textContent = files;
+      document.getElementById('pageCount').textContent = pages;
+      const pct = origSize ? Math.min(100, (1 - compSize / origSize) * 100) : 0;
       document.getElementById('pctLbl').textContent = '-' + pct.toFixed(1) + '%';
       document.getElementById('szFill').style.width = pct + '%';
       document.getElementById('szFill').className = pct < 30 ? 'fill partial' : 'fill';
-      document.getElementById('btnDwl').href = '/download-compressed?t=' + Date.now();
-      al('PDFs reducidos: ' + j.files + ' archivos, ' + fmt(j.compressed_size) + ' (-' + pct.toFixed(1) + '%)', 's');
+      if (lastBlobUrl) { URL.revokeObjectURL(lastBlobUrl); }
+      const blob = await r.blob();
+      lastBlobUrl = URL.createObjectURL(blob);
+      const dlBtn = document.getElementById('btnDwl');
+      dlBtn.href = lastBlobUrl;
+      dlBtn.download = 'pdfs_reducidos.zip';
+      dlBtn.style.display = '';
+      const a = document.createElement('a');
+      a.href = lastBlobUrl;
+      a.download = 'pdfs_reducidos.zip';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      al('PDFs reducidos: ' + files + ' archivos, ' + fmt(compSize) + ' (-' + pct.toFixed(1) + '%)', 's');
     } catch (e) { al('Error de conexión', 'e'); }
     btnCompress.disabled = false;
     document.getElementById('loading').classList.remove('active');
@@ -164,6 +188,8 @@
     document.getElementById('compSize').textContent = '—';
     document.getElementById('fileCount').textContent = '0';
     document.getElementById('pageCount').textContent = '0';
+    document.getElementById('btnDwl').style.display = 'none';
+    if (lastBlobUrl) { URL.revokeObjectURL(lastBlobUrl); lastBlobUrl = null; }
   }
 </script>
 {% endblock %}

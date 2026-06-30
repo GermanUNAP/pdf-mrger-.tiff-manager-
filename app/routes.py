@@ -1,20 +1,17 @@
 import os
 import io
 import json
-import shutil
 import zipfile
-import tempfile
 
 from flask import (render_template, request, send_file,
                    jsonify, after_this_request, current_app)
 from werkzeug.utils import secure_filename
 from PIL import Image
-import img2pdf
 import pikepdf
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import RectangleObject
 
-from app.services import merge_pdfs, parse_pages_to_remove, process_tiff_stream, compress_pdf
+from app.services import merge_pdfs, parse_pages_to_remove, compress_pdf
 from app.metrics import log_usage
 
 
@@ -204,103 +201,6 @@ def init_routes(app):
     @app.route('/convert')
     def convert_page():
         return render_template('convert.html')
-
-    @app.route('/convert-tiff', methods=['POST'])
-    def convert_tiff():
-        upload = current_app.config['UPLOAD_FOLDER']
-        if 'files[]' not in request.files:
-            return jsonify({'error': 'No se enviaron archivos'}), 400
-        files = request.files.getlist('files[]')
-        if not files or files[0].filename == '':
-            return jsonify({'error': 'No se seleccionaron archivos'}), 400
-
-        quality = request.form.get('quality', 'high')
-        target_dpi_str = request.form.get('dpi', '')
-        try:
-            target_dpi = int(target_dpi_str) if target_dpi_str else None
-        except ValueError:
-            target_dpi = None
-
-        uploaded = []
-        tmp_pages_dir = tempfile.mkdtemp(prefix='convert_pages_')
-        total_original = 0
-
-        try:
-            for f in files:
-                fname = f.filename.lower()
-                if not (fname.endswith('.tiff') or fname.endswith('.tif')):
-                    return jsonify({'error': f'Formato no soportado: {f.filename}. Solo .tif/.tiff'}), 400
-                tmp_path = os.path.join(upload, secure_filename(f.filename))
-                f.save(tmp_path)
-                uploaded.append(tmp_path)
-                total_original += os.path.getsize(tmp_path)
-
-            jpg_paths = []
-            for tiff_path in uploaded:
-                result = process_tiff_stream(tiff_path, quality, target_dpi, tmp_pages_dir)
-                jpg_paths.extend(result)
-
-            if not jpg_paths:
-                return jsonify({'error': 'No se pudieron procesar las imágenes'}), 400
-
-            tmp_pdf = os.path.join(upload, 'tmp_convert.pdf')
-            pdf_bytes = img2pdf.convert(jpg_paths)
-            with open(tmp_pdf, 'wb') as f:
-                f.write(pdf_bytes)
-
-            try:
-                with pikepdf.open(tmp_pdf) as pdf:
-                    pdf.save(tmp_pdf, compress_streams=True)
-            except Exception:
-                pass
-
-            compressed = os.path.getsize(tmp_pdf)
-            try:
-                reader = PdfReader(tmp_pdf)
-                page_count_val = len(reader.pages)
-            except Exception:
-                page_count_val = len(jpg_paths)
-
-            log_usage('convert_tiff', file_size=total_original, pages_out=page_count_val,
-                      file_size_out=compressed,
-                      original_filename=';'.join(f.filename for f in files))
-
-            return jsonify({
-                'original_size': total_original,
-                'compressed_size': compressed,
-                'pages': page_count_val,
-                'download': '/download-convert'
-            })
-        except Exception as e:
-            log_usage('convert_tiff', success=False, error_message=str(e),
-                      original_filename=';'.join(f.filename for f in files) if files else None)
-            return jsonify({'error': f'Error al convertir: {str(e)}'}), 500
-        finally:
-            for p in uploaded:
-                try:
-                    os.remove(p)
-                except Exception:
-                    pass
-            try:
-                shutil.rmtree(tmp_pages_dir, ignore_errors=True)
-            except Exception:
-                pass
-
-    @app.route('/download-convert')
-    def download_convert():
-        path = os.path.join(current_app.config['UPLOAD_FOLDER'], 'tmp_convert.pdf')
-        if not os.path.exists(path):
-            return jsonify({'error': 'Archivo no encontrado'}), 404
-
-        @after_this_request
-        def cleanup(resp):
-            try:
-                os.remove(path)
-            except Exception:
-                pass
-            return resp
-
-        return send_file(path, as_attachment=True, download_name='documento_convertido.pdf')
 
     @app.route('/crop')
     def crop_page():
@@ -553,12 +453,12 @@ def init_routes(app):
         if not files or files[0].filename == '':
             return jsonify({'error': 'No se seleccionaron archivos'}), 400
 
-        quality = request.form.get('quality', 'high')
-        target_dpi_str = request.form.get('dpi', '')
+        quality = request.form.get('quality', 'balanced')
+        target_dpi_str = request.form.get('dpi', '150')
         remove_meta = request.form.get('remove_meta', '1') == '1'
 
-        quality_map = {'high': 85, 'balanced': 65, 'low': 45}
-        jpeg_quality = quality_map.get(quality, 85)
+        quality_map = {'high': 55, 'balanced': 35, 'low': 20, 'max': 10}
+        jpeg_quality = quality_map.get(quality, 35)
 
         try:
             target_dpi = int(target_dpi_str) if target_dpi_str else None
@@ -586,14 +486,13 @@ def init_routes(app):
                 reader = PdfReader(out)
                 total_pages += len(reader.pages)
 
-            zip_path = os.path.join(upload, 'pdfs_reducidos.zip')
-            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as z:
+            zip_buf = io.BytesIO()
+            with zipfile.ZipFile(zip_buf, 'w', zipfile.ZIP_DEFLATED) as z:
                 for p in out_paths:
-                    folder_name = 'pdfs reducidos'
-                    arcname = os.path.join(folder_name, os.path.basename(p))
+                    arcname = os.path.join('pdfs reducidos', os.path.basename(p))
                     z.write(p, arcname)
 
-            total_compressed = os.path.getsize(zip_path)
+            total_compressed = zip_buf.tell()
             compression_ratio = round(total_compressed / total_original, 4) if total_original > 0 else None
 
             log_usage('compress_pdfs', file_size=total_original, pages_out=total_pages,
@@ -601,12 +500,16 @@ def init_routes(app):
                       compression_ratio=compression_ratio,
                       original_filename=';'.join(f.filename for f in files))
 
-            return jsonify({
-                'original_size': total_original,
-                'compressed_size': total_compressed,
-                'files': len(out_paths),
-                'pages': total_pages
-            })
+            zip_buf.seek(0)
+            response = send_file(zip_buf, as_attachment=True,
+                                 download_name='pdfs_reducidos.zip',
+                                 mimetype='application/zip')
+            response.headers['X-Original-Size'] = str(total_original)
+            response.headers['X-Compressed-Size'] = str(total_compressed)
+            response.headers['X-File-Count'] = str(len(out_paths))
+            response.headers['X-Page-Count'] = str(total_pages)
+            return response
+
         except Exception as e:
             log_usage('compress_pdfs', success=False, error_message=str(e),
                       original_filename=';'.join(f.filename for f in files) if files else None)
@@ -617,19 +520,3 @@ def init_routes(app):
                     os.remove(p)
                 except Exception:
                     pass
-
-    @app.route('/download-compressed')
-    def download_compressed():
-        path = os.path.join(current_app.config['UPLOAD_FOLDER'], 'pdfs_reducidos.zip')
-        if not os.path.exists(path):
-            return jsonify({'error': 'Archivo no encontrado. Vuelve a comprimir.'}), 404
-
-        @after_this_request
-        def cleanup(resp):
-            try:
-                os.remove(path)
-            except Exception:
-                pass
-            return resp
-
-        return send_file(path, as_attachment=True, download_name='pdfs_reducidos.zip')
