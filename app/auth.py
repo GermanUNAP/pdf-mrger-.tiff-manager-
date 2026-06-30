@@ -8,6 +8,14 @@ from app.models import User
 bp = Blueprint('auth', __name__, url_prefix='/auth')
 
 
+@bp.app_context_processor
+def inject_oauth_providers():
+    from app.extensions import oauth
+    return {
+        'oauth_providers': [name for name in ('google', 'github') if oauth.create_client(name) is not None],
+    }
+
+
 @bp.route('/register', methods=['GET', 'POST'])
 def register():
     if current_user.is_authenticated:
