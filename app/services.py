@@ -121,10 +121,26 @@ def compress_pdf(pdf_path, jpeg_quality, target_dpi, remove_meta, output_dir, lo
     out_path = os.path.join(output_dir, f'{basename}_reducido.pdf')
 
     with pikepdf.open(pdf_path) as pdf:
+        processed = 0
+        failed = 0
         for page in pdf.pages:
             for name, image in page.images.items():
                 try:
-                    pil_image = image.as_pil_image()
+                    pil_image = None
+                    try:
+                        pil_image = image.as_pil_image()
+                    except Exception:
+                        try:
+                            raw = image.stream.read_bytes()
+                            pil_image = PILImage.open(io.BytesIO(raw))
+                        except Exception:
+                            if logger:
+                                logger.debug("Could not decode image %s, skipping", name)
+
+                    if pil_image is None:
+                        failed += 1
+                        continue
+
                     if target_dpi:
                         orig_dpi = pil_image.info.get('dpi', (None, None))[0]
                         if orig_dpi and orig_dpi > target_dpi:
@@ -146,9 +162,14 @@ def compress_pdf(pdf_path, jpeg_quality, target_dpi, remove_meta, output_dir, lo
                     pil_image.save(buf, format='JPEG', quality=jpeg_quality, optimize=True)
                     buf.seek(0)
                     page.images[name] = pikepdf.Stream(pdf, buf.read())
+                    processed += 1
                 except Exception as e:
+                    failed += 1
                     if logger:
-                        logger.warning("Could not process image %s: %s", name, e)
+                        logger.debug("Could not process image %s: %s", name, e)
+
+        if failed and logger:
+            logger.info("Compressed %d images, skipped %d unsupported images", processed, failed)
 
         if remove_meta:
             for key in ('/Author', '/Title', '/Subject', '/Creator', '/Producer', '/Keywords'):
