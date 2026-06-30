@@ -20,11 +20,32 @@ def create_app():
     if not os.path.exists(upload_folder):
         os.makedirs(upload_folder)
 
-    from app.extensions import db, sess, login_manager
+    from app.extensions import db, sess, login_manager, oauth
     db.init_app(app)
     app.config['SESSION_SQLALCHEMY'] = db
     sess.init_app(app)
     login_manager.init_app(app)
+    oauth.init_app(app)
+
+    if app.config.get('GOOGLE_CLIENT_ID'):
+        oauth.register(
+            name='google',
+            client_id=app.config['GOOGLE_CLIENT_ID'],
+            client_secret=app.config['GOOGLE_CLIENT_SECRET'],
+            server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
+            client_kwargs={'scope': 'openid email profile'},
+        )
+
+    if app.config.get('GITHUB_CLIENT_ID'):
+        oauth.register(
+            name='github',
+            client_id=app.config['GITHUB_CLIENT_ID'],
+            client_secret=app.config['GITHUB_CLIENT_SECRET'],
+            access_token_url='https://github.com/login/oauth/access_token',
+            authorize_url='https://github.com/login/oauth/authorize',
+            api_base_url='https://api.github.com/',
+            client_kwargs={'scope': 'user:email'},
+        )
 
     with app.app_context():
         from app.models import User, UsageLog

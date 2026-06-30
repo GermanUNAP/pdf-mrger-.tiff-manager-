@@ -42,3 +42,9 @@ class Config:
     PERMANENT_SESSION_LIFETIME = _session_lifetime()
     SESSION_USE_SIGNER = True
     SESSION_KEY_PREFIX = 'pdfm:'
+
+    GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID')
+    GOOGLE_CLIENT_SECRET = os.environ.get('GOOGLE_CLIENT_SECRET')
+    GITHUB_CLIENT_ID = os.environ.get('GITHUB_CLIENT_ID')
+    GITHUB_CLIENT_SECRET = os.environ.get('GITHUB_CLIENT_SECRET')
+    OAUTH_REDIRECT_URI = os.environ.get('OAUTH_REDIRECT_URI', 'http://127.0.0.1:5050')

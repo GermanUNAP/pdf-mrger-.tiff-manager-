@@ -170,6 +170,15 @@ h1{font-size:24px;margin-bottom:8px;color:#1a1a2e}
 .field-group input{width:100%;padding:10px 14px;border:1px solid #ddd;border-radius:8px;font-size:14px;outline:none;transition:border .2s}
 .field-group input:focus{border-color:#4a6cf7;box-shadow:0 0 0 2px rgba(74,108,247,.1)}
 
+.oauth-btns{display:flex;gap:10px;margin-bottom:0}
+.btn-oauth{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:10px 16px;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;transition:all .2s;border:1px solid #ddd}
+.btn-oauth:hover{box-shadow:0 2px 8px rgba(0,0,0,.1)}
+.btn-oauth-google{background:#fff;color:#555;border-color:#dadce0}
+.btn-oauth-google:hover{background:#f8f9fa;border-color:#4285f4}
+.btn-oauth-github{background:#24292f;color:#fff;border-color:#24292f}
+.btn-oauth-github:hover{background:#1b1f23}
+.oauth-divider{display:flex;align-items:center;gap:12px;margin:16px 0;color:#aaa;font-size:12px}
+.oauth-divider::before,.oauth-divider::after{content:'';flex:1;height:1px;background:#e5e7eb}
 .toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:16px;padding:12px;background:#f8f9fb;border-radius:8px;border:1px solid #eee}
 .toolbar .info{margin-left:auto;font-size:12px;color:#888}
 .pg-wrap{break-inside:avoid;margin-bottom:20px;display:inline-block;width:100%}

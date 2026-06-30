@@ -17,7 +17,9 @@ class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False, index=True)
     email = db.Column(db.String(120), unique=True, nullable=False, index=True)
-    password_hash = db.Column(db.String(256), nullable=False)
+    password_hash = db.Column(db.String(256), nullable=True)
+    oauth_provider = db.Column(db.String(30), nullable=True)
+    oauth_id = db.Column(db.String(120), nullable=True)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     last_seen = db.Column(db.DateTime, nullable=True)
     is_active = db.Column(db.Boolean, default=True)
@@ -26,12 +28,18 @@ class User(UserMixin, db.Model):
     consent_given = db.Column(db.Boolean, default=False)
     notes = db.Column(db.Text, nullable=True)
 
+    __table_args__ = (
+        db.Index('idx_user_oauth', 'oauth_provider', 'oauth_id', unique=True),
+    )
+
     usage_logs = db.relationship('UsageLog', backref='user', lazy='dynamic')
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
 
     def check_password(self, password):
+        if self.password_hash is None:
+            return False
         return check_password_hash(self.password_hash, password)
 
     def __repr__(self):
