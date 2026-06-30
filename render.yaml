@@ -2,7 +2,7 @@ services:
   - type: web
     name: pdf-merger
     runtime: docker
-    repo: https://github.com/tuusuario/pdf-merger
+    repo: https://github.com/GermanUNAP/pdf-mrger-.tiff-manager-
     plan: free
     region: ohio
     envVars:
