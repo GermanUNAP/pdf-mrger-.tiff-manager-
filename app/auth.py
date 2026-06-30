@@ -101,7 +101,8 @@ def oauth_login(provider):
         flash(f'Inicio de sesión con {provider} no configurado', 'error')
         return redirect(url_for('auth.login'))
 
-    redirect_uri = url_for('auth.oauth_callback', provider=provider, _external=True)
+    base = current_app.config.get('OAUTH_REDIRECT_URI', '').rstrip('/')
+    redirect_uri = base + url_for('auth.oauth_callback', provider=provider)
     return client.authorize_redirect(redirect_uri)
 
 
