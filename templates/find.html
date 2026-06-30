@@ -1,0 +1,362 @@
+{% extends "base.html" %}
+{% block title %}Buscar páginas faltantes{% endblock %}
+
+{% block content %}
+<div class="container">
+  <h1>Encontrar páginas faltantes</h1>
+  <p class="sub">
+    Búsqueda binaria: te digo qué página revisar, tú me dices qué folio ves.
+    Así encuentro todos los faltantes en pocos pasos.
+  </p>
+
+  <div id="alerts"></div>
+
+  <div id="pIn">
+    <div class="sec">
+      <div class="st">Datos del documento</div>
+      <div class="row">
+        <div class="f">
+          <label for="f1">Folio de la 1.ª página del PDF</label>
+          <input type="number" id="f1" placeholder="Ej: 10934">
+        </div>
+        <div class="f">
+          <label for="f2">Folio de la última página del PDF</label>
+          <input type="number" id="f2" placeholder="Ej: 10556">
+        </div>
+      </div>
+      <div class="row">
+        <div class="f">
+          <label for="pp">N.º de páginas del PDF (según tu visor)</label>
+          <input type="number" id="pp" min="1" placeholder="Ej: 350">
+        </div>
+        <div class="f" style="padding-top:22px;">
+          <button class="btn btn-p" onclick="iniciar()">Iniciar</button>
+        </div>
+      </div>
+      <div id="resumen" style="font-size:13px; color:#888; margin-top:8px;"></div>
+    </div>
+  </div>
+
+  <div id="pBusq" class="hide">
+    <div class="sec">
+      <div class="st">
+        <span id="dirB"></span>
+        <span class="badge" id="pasoB">paso 1</span>
+        <span id="badgeGaps"></span>
+      </div>
+
+      <div class="pg">
+        <div class="s"><div class="n" id="restantes">0</div><div class="l">Por revisar</div></div>
+        <div class="s"><div class="n" id="revisados">0</div><div class="l">Revisados</div></div>
+        <div class="s"><div class="n" id="faltantes">0</div><div class="l">Faltantes</div></div>
+      </div>
+
+      <div class="bw">
+        <span class="lb">1</span>
+        <div class="tr"><div class="fl" id="barFill" style="width:0%"></div></div>
+        <span class="lb" id="barHigh">100</span>
+      </div>
+
+      <div id="barInd" style="height:8px; border-radius:4px; overflow:hidden; margin-bottom:8px;"></div>
+
+      <div style="display:flex; gap:12px; font-size:11px; color:#888; margin-bottom:8px;">
+        <span><span style="display:inline-block; width:10px; height:10px; background:#86efac; border-radius:2px; vertical-align:middle;"></span> Correcto</span>
+        <span><span style="display:inline-block; width:10px; height:10px; background:#fde68a; border-radius:2px; vertical-align:middle;"></span> Desfasado</span>
+        <span><span style="display:inline-block; width:10px; height:10px; background:#fca5a5; border-radius:2px; vertical-align:middle;"></span> No existe</span>
+        <span><span style="display:inline-block; width:10px; height:10px; background:#e5e7eb; border-radius:2px; vertical-align:middle;"></span> Sin revisar</span>
+      </div>
+
+      <div class="card">
+        <div class="desc">Ve a la página <strong id="pagActual">—</strong> de tu PDF</div>
+        <div class="bigd" id="folioActual">—</div>
+        <div class="desc" style="margin-bottom:12px;">¿Qué folio ves en esta página?</div>
+        <div style="max-width:280px; margin:0 auto;">
+          <input type="number" id="folioIn" placeholder="N.° de folio" autocomplete="off"
+                 style="text-align:center; font-size:20px; padding:12px;">
+        </div>
+        <div class="hint" id="hintArea"></div>
+        <div style="font-size:11px; color:#999; margin-top:8px; line-height:1.4;">
+          Si la página tiene un <strong>folio diferente</strong>, escríbelo y presiona Confirmar.
+          Solo usa "No existe" si la página está en blanco o el folio no se ve.
+        </div>
+        <div class="btns">
+          <button class="btn btn-g" id="btnConf" onclick="handleConfirmar()">✓ Confirmar</button>
+          <button class="btn btn-r" id="btnNo" onclick="handleNoExiste()">✗ No existe</button>
+        </div>
+      </div>
+
+      <div id="gapsList"></div>
+      <button class="btn btn-o" onclick="finalizar()" style="margin-top:12px;">Finalizar búsqueda</button>
+    </div>
+  </div>
+
+  <div id="pDone" class="hide">
+    <div class="sec">
+      <div class="st">Resultado final</div>
+      <div id="doneContent"></div>
+    </div>
+    <button class="btn btn-o" onclick="resetear()">Nueva búsqueda</button>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  let S = null;
+
+  function al(m, t) {
+    const d = document.createElement('div');
+    d.className = 'alert alert-' + t;
+    d.textContent = m;
+    document.getElementById('alerts').appendChild(d);
+    setTimeout(() => d.remove(), 7000);
+  }
+
+  function totalGaps() { return S.gaps.reduce((s, g) => s + g.count, 0); }
+
+  function cumGapsAt(pos) {
+    let c = 0;
+    for (const g of S.gaps) if (g.pos < pos) c += g.count;
+    return c;
+  }
+
+  function expFolio(pos) {
+    const c = cumGapsAt(pos);
+    return S.inc ? S.f1 + pos + c : S.f1 - pos - c;
+  }
+
+  function iniciar() {
+    const f1 = parseInt(document.getElementById('f1').value);
+    const f2 = parseInt(document.getElementById('f2').value);
+    const pp = parseInt(document.getElementById('pp').value);
+    if (!f1 || !f2) { al('Ingresa ambos folios', 'e'); return; }
+    if (!pp || pp < 1) { al('N.º de páginas inválido', 'e'); return; }
+    if (f1 === f2) { al('Los folios no pueden ser iguales', 'e'); return; }
+    const inc = f1 < f2;
+    const exp = inc ? f2 - f1 + 1 : f1 - f2 + 1;
+    if (exp === pp) { al('Coincidencia: ' + pp + ' págs, ' + exp + ' folios. No faltan.', 's'); return; }
+    if (pp > exp) { al('El PDF tiene ' + pp + ' págs pero solo ' + exp + ' folios. Revisa.', 'w'); return; }
+    S = { f1, f2, pp, inc, exp, gaps: [], cache: {}, pasos: 0, low: 0, high: pp };
+    document.getElementById('alerts').innerHTML = '';
+    document.getElementById('pIn').classList.add('hide');
+    document.getElementById('pBusq').classList.remove('hide');
+    document.getElementById('pDone').classList.add('hide');
+    document.getElementById('gapsList').innerHTML = '';
+    document.getElementById('badgeGaps').innerHTML = '';
+    document.getElementById('barInd').innerHTML = '';
+    document.getElementById('dirB').innerHTML = '<span class="badge">' + (inc ? 'ascendente' : 'descendente') + '</span>';
+    atualizarStats();
+    nextStep();
+  }
+
+  function nextStep() {
+    if (S.low >= S.high) {
+      if (S.low < S.pp) {
+        const gapFolio = S.cache[S.low];
+        if (gapFolio !== null && gapFolio !== undefined) {
+          const e = expFolio(S.low);
+          let diff = S.inc ? gapFolio - e : e - gapFolio;
+          if (diff > 0) addGap(S.low, diff);
+        } else { addGap(S.low, 1); }
+      }
+      S.low = S.low + 1;
+      S.high = S.pp;
+      if (S.low >= S.high) { terminar(); return; }
+    }
+    if (S.low >= S.high) { terminar(); return; }
+    while (S.low < S.high && S.cache[S.low] !== undefined) S.low++;
+    if (S.low >= S.high) { terminar(); return; }
+    let mid = Math.floor((S.low + S.high) / 2);
+    while (mid < S.high && S.cache[mid] !== undefined) mid++;
+    if (mid >= S.high) { S.low = S.high; terminar(); return; }
+    S.pending = mid;
+    const folio = expFolio(mid);
+    document.getElementById('pagActual').textContent = mid + 1;
+    document.getElementById('folioActual').textContent = folio;
+    document.getElementById('folioIn').value = folio;
+    document.getElementById('folioIn').focus();
+    document.getElementById('folioIn').select();
+    document.getElementById('hintArea').textContent = '';
+    document.getElementById('pasoB').textContent = 'paso ' + (S.pasos + 1);
+    atualizarStats();
+  }
+
+  function atualizarStats() {
+    const r = Object.keys(S.cache).length;
+    document.getElementById('restantes').textContent = Math.max(0, S.pp - r);
+    document.getElementById('revisados').textContent = r;
+    const gc = totalGaps();
+    document.getElementById('faltantes').textContent = gc;
+    const pct = S.pp ? Math.min(100, r / S.pp * 100) : 0;
+    document.getElementById('barFill').style.width = pct + '%';
+    document.getElementById('barHigh').textContent = S.pp;
+    document.getElementById('badgeGaps').innerHTML = gc > 0 ? '<span class="badge" style="background:#fef3c7; color:#92400e;">' + gc + ' faltantes</span>' : '';
+    renderBarIndicator();
+  }
+
+  function renderBarIndicator() {
+    const el = document.getElementById('barInd');
+    if (!S) return;
+    let html = '';
+    const w = 100 / S.pp;
+    for (let i = 0; i < S.pp; i++) {
+      const c = S.cache[i];
+      let color = '#e5e7eb';
+      if (c !== undefined) {
+        if (c === null) color = '#fca5a5';
+        else { const e = expFolio(i); color = (c === e) ? '#86efac' : '#fde68a'; }
+      }
+      html += '<div style="float:left; width:' + w + '%; height:8px; background:' + color + ';"></div>';
+    }
+    el.innerHTML = html;
+  }
+
+  function handleConfirmar() {
+    const idx = S.pending;
+    if (idx === undefined || idx === null) return;
+    const actual = parseInt(document.getElementById('folioIn').value);
+    if (!actual && actual !== 0) { al('Ingresa el folio que ves', 'e'); return; }
+    const exp = expFolio(idx);
+    S.pasos++;
+    S.cache[idx] = actual;
+    if (actual === exp) {
+      addLog(idx, actual, exp, 'correcto');
+      S.low = idx + 1;
+      S.pending = null;
+      atualizarStats();
+      setTimeout(nextStep, 20);
+      return;
+    }
+    addLog(idx, actual, exp, 'desfase');
+    S.high = idx;
+    S.pending = null;
+    atualizarStats();
+    if (S.low >= S.high) {
+      const g = S.cache[S.low];
+      if (g !== null && g !== undefined) {
+        const e = expFolio(S.low);
+        let diff = S.inc ? g - e : e - g;
+        if (diff > 0) addGap(S.low, diff);
+      } else { addGap(S.low, 1); }
+      S.low += 1;
+      S.high = S.pp;
+    }
+    setTimeout(nextStep, 20);
+  }
+
+  function handleNoExiste() {
+    const idx = S.pending;
+    if (idx === undefined || idx === null) return;
+    const exp = expFolio(idx);
+    S.pasos++;
+    S.cache[idx] = null;
+    addLog(idx, null, exp, 'noexiste');
+    addGap(idx, 1);
+    S.low = idx + 1;
+    S.pending = null;
+    atualizarStats();
+    setTimeout(nextStep, 20);
+  }
+
+  function addGap(pos, count) {
+    const known = cumGapsAt(pos);
+    let start, end;
+    if (S.inc) { start = S.f1 + pos + known; end = start + count - 1; }
+    else { end = S.f1 - pos - known; start = end - count + 1; }
+    const fl = [];
+    if (S.inc) { for (let f = start; f <= end; f++) fl.push(f); }
+    else { for (let f = end; f >= start; f--) fl.push(f); }
+    S.gaps.push({ pos, count, start, end, folios: fl });
+    atualizarStats();
+  }
+
+  function addLog(idx, actual, exp, tipo) {
+    const el = document.getElementById('gapsList');
+    const n = idx + 1;
+    const f = actual !== null ? actual : '—';
+    if (tipo === 'correcto') {
+      el.innerHTML += '<div class="gb" style="background:#dcfce7;border-color:#bbf7d0;padding:8px 14px"><span>Pág ' + n + ' → folio <strong>' + f + '</strong> ✓</span><span class="tg-g">OK</span></div>';
+    } else if (tipo === 'desfase') {
+      el.innerHTML += '<div class="gb" style="background:#dbeafe;border-color:#bfdbfe;padding:8px 14px"><span>Pág ' + n + ' → folio <strong>' + f + '</strong> (esperado ' + exp + ')</span><span class="tg">DESFASE</span></div>';
+    } else if (tipo === 'noexiste') {
+      el.innerHTML += '<div class="gb" style="padding:8px 14px"><span>Pág ' + n + ' → folio <strong>' + exp + '</strong> no encontrado</span><span class="tg-r">FALTA</span></div>';
+    }
+  }
+
+  document.getElementById('folioIn').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') handleConfirmar();
+  });
+
+  function terminar() {
+    const found = totalGaps();
+    const remain = S.exp - S.pp - found;
+    if (remain > 0) {
+      const cg = totalGaps();
+      let start, end;
+      if (S.inc) { start = S.f1 + S.pp + cg; end = start + remain - 1; }
+      else { end = S.f1 - S.pp - cg; start = end - remain + 1; }
+      const fl = [];
+      if (S.inc) { for (let f = start; f <= end; f++) fl.push(f); }
+      else { for (let f = end; f >= start; f--) fl.push(f); }
+      S.gaps.push({ pos: S.pp, count: remain, start, end, alFinal: true, folios: fl });
+    }
+    const total = totalGaps();
+    document.getElementById('pBusq').classList.add('hide');
+    document.getElementById('pDone').classList.remove('hide');
+    const allFl = [];
+    for (const g of S.gaps) for (const f of g.folios) allFl.push(f);
+    allFl.sort((a, b) => S.inc ? a - b : b - a);
+    let html = '';
+    if (total === 0) {
+      html = '<div class="alert alert-s">No hay páginas faltantes.</div>';
+    } else {
+      html = '<div class="alert alert-w"><strong>' + total + '</strong> folio' + (total !== 1 ? 's' : '') + ' faltante' + (total !== 1 ? 's' : '') + '</div>';
+      if (S.gaps.length > 0) {
+        html += '<div style="margin-bottom:8px; font-weight:600; font-size:13px; color:#555;">Gaps encontrados:</div>';
+        for (const g of S.gaps) {
+          const xtra = g.alFinal ? ' (al final del doc)' : '';
+          html += '<div class="gb" style="padding:10px 14px;"><span><strong>Folios ' + g.start + ' → ' + g.end + '</strong> (' + g.count + ' folio' + (g.count !== 1 ? 's' : '') + ')' + xtra + '</span></div>';
+        }
+      }
+      html += '<div style="margin-top:12px; font-weight:600; font-size:13px; color:#555;">Lista de folios faltantes (' + allFl.length + '):</div>';
+      html += '<ul class="gap-list">';
+      for (const f of allFl) html += '<li>Folio <strong>' + f + '</strong></li>';
+      html += '</ul>';
+    }
+    html += '<div style="margin-top:16px; padding:16px; background:#f0f2f5; border-radius:8px; font-size:13px;">';
+    html += '<strong>Resumen:</strong><br>';
+    html += '1.er folio ' + S.f1 + ' | Último folio ' + S.f2 + ' | ' + S.exp + ' folios esperados<br>';
+    html += 'PDF: ' + S.pp + ' págs | Faltantes: ' + total + ' | Pasos: ' + S.pasos;
+    html += '</div>';
+    document.getElementById('doneContent').innerHTML = html;
+  }
+
+  function resetear() {
+    S = null;
+    document.getElementById('pIn').classList.remove('hide');
+    document.getElementById('pBusq').classList.add('hide');
+    document.getElementById('pDone').classList.add('hide');
+    document.getElementById('gapsList').innerHTML = '';
+    document.getElementById('badgeGaps').innerHTML = '';
+    document.getElementById('barInd').innerHTML = '';
+    document.getElementById('alerts').innerHTML = '';
+  }
+
+  document.getElementById('f1').addEventListener('input', shResumen);
+  document.getElementById('f2').addEventListener('input', shResumen);
+  document.getElementById('pp').addEventListener('input', shResumen);
+
+  function shResumen() {
+    const f1 = parseInt(document.getElementById('f1').value);
+    const f2 = parseInt(document.getElementById('f2').value);
+    const pp = parseInt(document.getElementById('pp').value);
+    const el = document.getElementById('resumen');
+    if (!f1 || !f2 || !pp) { el.textContent = ''; return; }
+    if (f1 === f2) { el.textContent = 'Los folios no pueden ser iguales'; return; }
+    const inc = f1 < f2, exp = inc ? f2 - f1 + 1 : f1 - f2 + 1;
+    if (exp < pp) { el.innerHTML = '⚠ Más páginas (' + pp + ') que folios (' + exp + ')'; return; }
+    if (exp === pp) { el.innerHTML = '✓ <strong>' + pp + '</strong> págs, <strong>' + exp + '</strong> folios — Coincide'; return; }
+    el.innerHTML = '<strong>' + exp + '</strong> folios (' + (inc ? 'ascendente' : 'descendente') + '), PDF <strong>' + pp + '</strong> págs → <strong>' + (exp - pp) + '</strong> faltante' + (exp - pp !== 1 ? 's' : '');
+  }
+</script>
+{% endblock %}

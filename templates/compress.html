@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block title %}Reducir PDFs{% endblock %}
+
+{% block content %}
+<div class="container">
+  <h1>Reducir PDFs</h1>
+  <p class="sub">
+    Selecciona varios PDFs y redúcelos al máximo sin comprometer la calidad visual.
+    Ideal para escaneos pesados (100MB+). Los PDFs reducidos se descargan en un ZIP como <strong>"pdfs reducidos"</strong>.
+  </p>
+
+  <div id="alerts"></div>
+
+  <div class="sec">
+    <div class="st">1. Seleccionar PDFs</div>
+    <div class="upload-zone" id="dropZone">
+      <div class="ic">+</div>
+      <p>Arrastra archivos PDF aquí o haz click para seleccionar</p>
+    </div>
+    <input type="file" id="fileInput" accept=".pdf" multiple class="hide">
+    <ul class="file-list" id="fileList"></ul>
+  </div>
+
+  <div class="sec">
+    <div class="st">2. Configurar compresión</div>
+    <div class="row">
+      <div class="f">
+        <label for="qSelect">Calidad de imágenes</label>
+        <select id="qSelect">
+          <option value="high">Alta (Q85 - recomendado)</option>
+          <option value="balanced">Media (Q65 - máximo ahorro)</option>
+          <option value="low">Baja (Q45 - máxima reducción)</option>
+        </select>
+      </div>
+      <div class="f">
+        <label for="dpiSelect">Reducir resolución</label>
+        <select id="dpiSelect">
+          <option value="0">Original (sin reducir)</option>
+          <option value="200">200 DPI</option>
+          <option value="150">150 DPI (recomendado)</option>
+          <option value="100">100 DPI</option>
+          <option value="72">72 DPI</option>
+        </select>
+      </div>
+    </div>
+    <label style="display:flex; align-items:center; gap:8px; margin-top:8px; font-size:13px; color:#555; cursor:pointer;">
+      <input type="checkbox" id="removeMeta" checked>
+      Eliminar metadatos (autor, título, etc.)
+    </label>
+  </div>
+
+  <button class="btn btn-p" id="btnCompress" onclick="comprimir()" disabled>Reducir PDFs</button>
+  <div class="loading" id="loading"><div class="spinner"></div><span id="loadingText">Comprimiendo PDFs...</span></div>
+  <div class="progress-bar" id="progressBar"><div class="fill" id="progressFill" style="width:0%"></div></div>
+
+  <div id="pResult" class="sec hide">
+    <div class="st">3. Resultado</div>
+    <div class="result-card">
+      <div class="desc">Tamaño original</div>
+      <div class="big" id="origSize">—</div>
+      <div class="desc" style="margin-top:8px;">Tamaño comprimido</div>
+      <div class="big-s" id="compSize">—</div>
+      <div class="desc" style="margin-top:4px;"><strong id="fileCount">0</strong> archivos · <strong id="pageCount">0</strong> páginas</div>
+      <div class="sz-bar">
+        <span class="lbl" id="pctLbl">0%</span>
+        <div class="bar"><div class="fill" id="szFill" style="width:0%"></div></div>
+      </div>
+      <a class="btn btn-g" id="btnDwl" href="/download-compressed">Descargar ZIP</a>
+      <button class="btn btn-o" onclick="resetear()" style="margin-top:8px;">Comprimir otros</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const dropZone = document.getElementById('dropZone');
+  const fileInput = document.getElementById('fileInput');
+  const fileList = document.getElementById('fileList');
+  const btnCompress = document.getElementById('btnCompress');
+  const alerts = document.getElementById('alerts');
+  let selectedFiles = [];
+
+  dropZone.addEventListener('click', () => fileInput.click());
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+  dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('dragover'); if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files); });
+  fileInput.addEventListener('change', () => { if (fileInput.files.length) addFiles(fileInput.files); fileInput.value = ''; });
+
+  function addFiles(files) {
+    for (const f of files) {
+      if (!f.name.toLowerCase().endsWith('.pdf')) { al('Solo PDF: ' + f.name, 'e'); continue; }
+      if (!selectedFiles.find(x => x.name === f.name && x.size === f.size)) selectedFiles.push(f);
+    }
+    renderFiles();
+  }
+
+  function renderFiles() {
+    fileList.innerHTML = '';
+    let total = 0;
+    for (const f of selectedFiles) {
+      total += f.size;
+      const li = document.createElement('li');
+      li.innerHTML = '<span><strong>' + f.name + '</strong> <span class="sz">(' + fmt(f.size) + ')</span></span> <span onclick="removeFile(\'' + f.name + ',' + f.size + '\')" style="cursor:pointer;color:#ef4444;font-weight:700">✕</span>';
+      fileList.appendChild(li);
+    }
+    const t = document.createElement('li');
+    t.style.background = '#e8ecf8';
+    t.innerHTML = '<span><strong>' + selectedFiles.length + ' archivo' + (selectedFiles.length !== 1 ? 's' : '') + '</strong> <span class="sz">(' + fmt(total) + ')</span></span>';
+    fileList.appendChild(t);
+    btnCompress.disabled = selectedFiles.length === 0;
+  }
+
+  function removeFile(key) {
+    const [name, size] = key.split(',');
+    selectedFiles = selectedFiles.filter(f => !(f.name === name && f.size === parseInt(size)));
+    renderFiles();
+  }
+
+  function fmt(b) { if (!b) return '0 B'; const u = ['B','KB','MB','GB']; let i=0, s=b; while (s>=1024 && i<u.length-1) { s/=1024; i++; } return s.toFixed(i>0?1:0)+' '+u[i]; }
+  function al(m,t) { const d = document.createElement('div'); d.className='alert alert-'+t; d.textContent=m; alerts.appendChild(d); setTimeout(() => d.remove(), 6000); }
+
+  async function comprimir() {
+    if (!selectedFiles.length) return;
+    btnCompress.disabled = true;
+    document.getElementById('loading').classList.add('active');
+    document.getElementById('progressBar').classList.add('active');
+    document.getElementById('loadingText').textContent = 'Comprimiendo PDFs...';
+    const fd = new FormData();
+    for (const f of selectedFiles) fd.append('files[]', f);
+    fd.append('quality', document.getElementById('qSelect').value);
+    const dpi = document.getElementById('dpiSelect').value;
+    if (dpi !== '0') fd.append('dpi', dpi);
+    fd.append('remove_meta', document.getElementById('removeMeta').checked ? '1' : '0');
+    try {
+      const r = await fetch('/compress-pdfs', { method: 'POST', body: fd });
+      const j = await r.json();
+      if (j.error) { al(j.error, 'e'); btnCompress.disabled = false; document.getElementById('loading').classList.remove('active'); document.getElementById('progressBar').classList.remove('active'); return; }
+      document.getElementById('pResult').classList.remove('hide');
+      document.getElementById('origSize').textContent = fmt(j.original_size);
+      document.getElementById('compSize').textContent = fmt(j.compressed_size);
+      document.getElementById('fileCount').textContent = j.files;
+      document.getElementById('pageCount').textContent = j.pages;
+      const pct = j.original_size ? Math.min(100, (1 - j.compressed_size / j.original_size) * 100) : 0;
+      document.getElementById('pctLbl').textContent = '-' + pct.toFixed(1) + '%';
+      document.getElementById('szFill').style.width = pct + '%';
+      document.getElementById('szFill').className = pct < 30 ? 'fill partial' : 'fill';
+      document.getElementById('btnDwl').href = '/download-compressed?t=' + Date.now();
+      al('PDFs reducidos: ' + j.files + ' archivos, ' + fmt(j.compressed_size) + ' (-' + pct.toFixed(1) + '%)', 's');
+    } catch (e) { al('Error de conexión', 'e'); }
+    btnCompress.disabled = false;
+    document.getElementById('loading').classList.remove('active');
+    document.getElementById('progressBar').classList.remove('active');
+  }
+
+  function resetear() {
+    selectedFiles = [];
+    fileList.innerHTML = '';
+    btnCompress.disabled = true;
+    document.getElementById('pResult').classList.add('hide');
+    document.getElementById('szFill').style.width = '0%';
+    document.getElementById('pctLbl').textContent = '0%';
+    document.getElementById('origSize').textContent = '—';
+    document.getElementById('compSize').textContent = '—';
+    document.getElementById('fileCount').textContent = '0';
+    document.getElementById('pageCount').textContent = '0';
+  }
+</script>
+{% endblock %}

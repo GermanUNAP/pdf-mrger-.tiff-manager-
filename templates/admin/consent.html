@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Consentimiento - PDF Tools{% endblock %}
+
+{% block content %}
+{% if not admin %}
+  <div class="form-card" style="max-width:480px; margin:4rem auto; text-align:center;">
+    <h1>Acceso restringido</h1>
+    <p style="margin-top:1rem; color:#888;">No tienes permisos de administrador.</p>
+  </div>
+{% else %}
+  <h1>Gestión de consentimiento</h1>
+  <p class="subtitle">Administra el consentimiento de recolección de datos para investigación</p>
+
+  {% if users %}
+    <div class="container" style="margin-top:24px;">
+      <div style="overflow-x:auto;">
+        <table style="width:100%; border-collapse:collapse; font-size:13px;">
+          <thead>
+            <tr style="background:#f8f9fb;">
+              <th style="padding:8px 12px; text-align:left;">ID</th>
+              <th style="padding:8px 12px; text-align:left;">Usuario</th>
+              <th style="padding:8px 12px; text-align:left;">Email</th>
+              <th style="padding:8px 12px; text-align:left;">Registro</th>
+              <th style="padding:8px 12px; text-align:left;">Consentimiento</th>
+              <th style="padding:8px 12px; text-align:left;">Bot</th>
+              <th style="padding:8px 12px; text-align:center;">Acción</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for user in users %}
+              <tr style="border-top:1px solid #eee;">
+                <td style="padding:8px 12px; color:#888;">{{ user.id }}</td>
+                <td style="padding:8px 12px;">{{ user.username }}</td>
+                <td style="padding:8px 12px; color:#888;">{{ user.email }}</td>
+                <td style="padding:8px 12px; color:#888;">{{ user.created_at.strftime('%d/%m/%Y') if user.created_at else '—' }}</td>
+                <td style="padding:8px 12px;">
+                  {% if user.consent_given %}
+                    <span class="tg-g">Sí</span>
+                  {% else %}
+                    <span class="tg-r">No</span>
+                  {% endif %}
+                </td>
+                <td style="padding:8px 12px;">
+                  {% if user.is_bot %}
+                    <span class="tg" style="background:#fff3cd; color:#856404;">Bot</span>
+                  {% else %}
+                    <span class="tg" style="background:#e8f5e9; color:#2e7d32;">Humano</span>
+                  {% endif %}
+                </td>
+                <td style="padding:8px 12px; text-align:center;">
+                  <button class="btn btn-sm" onclick="toggleConsent({{ user.id }}, {{ 'true' if user.consent_given else 'false' }})">
+                    {% if user.consent_given %}Revocar{% else %}Conceder{% endif %}
+                  </button>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  {% else %}
+    <div class="container" style="margin-top:24px; text-align:center; color:#888;">
+      <p>No hay usuarios registrados.</p>
+    </div>
+  {% endif %}
+{% endif %}
+
+<script>
+function toggleConsent(userId, current) {
+  if (!confirm('¿Cambiar consentimiento del usuario ' + userId + '?')) return;
+  var form = new FormData();
+  form.append('user_id', userId);
+  form.append('consent_given', current ? '0' : '1');
+  fetch('{{ url_for("admin.consent") }}', { method: 'POST', body: form })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.success) { location.reload(); }
+      else { alert('Error: ' + (data.error || 'desconocido')); }
+    })
+    .catch(function() { alert('Error de red'); });
+}
+</script>
+{% endblock %}

@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+{% block title %}PDF Merger - Insertar páginas{% endblock %}
+
+{% block content %}
+<div class="container">
+  <h1>PDF Merger</h1>
+  <p class="subtitle">Inserta páginas PDF en posiciones específicas de un PDF base</p>
+
+  <div id="alerts"></div>
+
+  <form id="mergeForm" enctype="multipart/form-data">
+    <div class="section">
+      <div class="section-title">PDF Base (Padre)</div>
+      <label for="base_pdf">Selecciona el PDF principal al que le faltan páginas</label>
+      <input type="file" id="base_pdf" name="base_pdf" accept=".pdf" required>
+      <div class="base-info" id="baseInfo">
+        <span class="filename" id="baseFilename"></span>
+        <span class="badge" id="basePages"></span>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">PDFs a Insertar</div>
+      <p style="font-size:13px; color:#888; margin-bottom:12px;">
+        Agrega los PDFs que faltan y especifica <strong>después de qué página</strong> del PDF base original deben ir.
+        <br>El número de página se refiere siempre al PDF base original, el sistema ajusta automáticamente cuando insertas varios PDFs.
+      </p>
+      <div id="insertionsContainer"></div>
+      <div class="add-btn-wrap">
+        <button type="button" class="btn btn-outline" onclick="addInsertion()">+ Agregar PDF</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="actions">
+        <button type="submit" class="btn btn-primary" id="mergeBtn">Fusionar PDFs</button>
+        <div class="loading" id="loading">
+          <div class="spinner"></div>
+          <span>Procesando PDFs...</span>
+        </div>
+      </div>
+      <div class="progress-bar" id="progressBar">
+        <div class="fill" id="progressFill"></div>
+      </div>
+    </div>
+  </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  let insertionCount = 0;
+
+  function addInsertion() {
+    insertionCount++;
+    const id = insertionCount;
+    const container = document.getElementById('insertionsContainer');
+    const div = document.createElement('div');
+    div.className = 'insert-row';
+    div.id = 'insert-row-' + id;
+    div.innerHTML = `
+      <div class="file-group">
+        <label for="pdf_${id}">PDF a insertar</label>
+        <input type="file" id="pdf_${id}" name="pdf_${id}" accept=".pdf" required onchange="handleFileSelect(${id})">
+        <div class="pdf-info" id="pdfInfo_${id}"></div>
+      </div>
+      <div class="page-group">
+        <label for="afterPage_${id}">Después de página</label>
+        <input type="number" id="afterPage_${id}" name="afterPage_${id}" min="0" value="0" required>
+        <small>0 = al inicio</small>
+      </div>
+      <button type="button" class="btn btn-danger remove-btn" onclick="removeInsertion(${id})">X</button>
+    `;
+    container.appendChild(div);
+  }
+
+  function removeInsertion(id) {
+    const row = document.getElementById('insert-row-' + id);
+    if (row) row.remove();
+    if (document.querySelectorAll('.insert-row').length === 0) addInsertion();
+  }
+
+  async function handleFileSelect(id) {
+    const input = document.getElementById('pdf_' + id);
+    const info = document.getElementById('pdfInfo_' + id);
+    const file = input.files[0];
+    if (!file) { info.innerHTML = ''; return; }
+    info.innerHTML = '<span class="badge">Consultando páginas...</span>';
+    const formData = new FormData();
+    formData.append('pdf', file);
+    try {
+      const res = await fetch('/page-count', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (data.pages) {
+        info.innerHTML = `<span class="badge">${data.pages} pág${data.pages !== 1 ? 's' : ''}</span> <span style="color:#888">${file.name}</span>`;
+      } else {
+        info.innerHTML = `<span class="badge" style="background:#fee2e2;color:#dc2626">Error</span> <span style="color:#888">${file.name}</span>`;
+      }
+    } catch (e) {
+      info.innerHTML = `<span class="badge" style="background:#fee2e2;color:#dc2626">Error al leer</span> <span style="color:#888">${file.name}</span>`;
+    }
+  }
+
+  document.getElementById('base_pdf').addEventListener('change', async function() {
+    const file = this.files[0];
+    const info = document.getElementById('baseInfo');
+    if (!file) { info.classList.remove('visible'); return; }
+    document.getElementById('baseFilename').textContent = file.name;
+    const formData = new FormData();
+    formData.append('pdf', file);
+    try {
+      const res = await fetch('/page-count', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (data.pages) {
+        document.getElementById('basePages').textContent = data.pages + ' pág' + (data.pages !== 1 ? 's' : '');
+      }
+    } catch (e) { document.getElementById('basePages').textContent = 'Error al leer'; }
+    info.classList.add('visible');
+  });
+
+  document.getElementById('mergeForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const alerts = document.getElementById('alerts');
+    alerts.innerHTML = '';
+    const baseInput = document.getElementById('base_pdf');
+    if (!baseInput.files[0]) { showAlert('Selecciona el PDF base', 'error'); return; }
+    const rows = document.querySelectorAll('.insert-row');
+    if (rows.length === 0) { showAlert('Agrega al menos un PDF', 'error'); return; }
+    const formData = new FormData();
+    formData.append('base_pdf', baseInput.files[0]);
+    const insertions = [];
+    for (const row of rows) {
+      const fileInput = row.querySelector('input[type="file"]');
+      const pageInput = row.querySelector('input[type="number"]');
+      if (!fileInput.files[0]) { showAlert('Todos los PDFs deben tener archivo', 'error'); return; }
+      if (pageInput.value === '') { showAlert('Especifica página para cada inserción', 'error'); return; }
+      const fileKey = fileInput.name;
+      formData.append(fileKey, fileInput.files[0]);
+      insertions.push({ fileKey, afterPage: parseInt(pageInput.value) });
+    }
+    formData.append('insertions', JSON.stringify(insertions));
+    const btn = document.getElementById('mergeBtn');
+    const loading = document.getElementById('loading');
+    const progressBar = document.getElementById('progressBar');
+    const progressFill = document.getElementById('progressFill');
+    btn.disabled = true;
+    loading.classList.add('active');
+    progressBar.classList.add('active');
+    let progress = 0;
+    const interval = setInterval(() => { progress = Math.min(progress + 5, 90); progressFill.style.width = progress + '%'; }, 2000);
+    try {
+      const res = await fetch('/merge', { method: 'POST', body: formData });
+      clearInterval(interval);
+      progressFill.style.width = '100%';
+      if (!res.ok) { const d = await res.json(); showAlert(d.error || 'Error', 'error'); btn.disabled = false; loading.classList.remove('active'); setTimeout(() => { progressBar.classList.remove('active'); progressFill.style.width = '0%'; }, 500); return; }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'pdf_final_mergeado.pdf'; a.click();
+      URL.revokeObjectURL(url);
+      showAlert('PDF fusionado correctamente.', 'success');
+    } catch (e) { clearInterval(interval); showAlert('Error de conexión', 'error'); }
+    btn.disabled = false;
+    loading.classList.remove('active');
+    setTimeout(() => { progressBar.classList.remove('active'); progressFill.style.width = '0%'; }, 1000);
+  });
+
+  function showAlert(msg, type) {
+    const div = document.createElement('div');
+    div.className = 'alert alert-' + type;
+    div.textContent = msg;
+    document.getElementById('alerts').appendChild(div);
+    setTimeout(() => div.remove(), 8000);
+  }
+
+  addInsertion();
+</script>
+{% endblock %}

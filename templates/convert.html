@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% block title %}Convertir TIFF a PDF{% endblock %}
+
+{% block content %}
+<div class="container">
+  <h1>Convertir TIFF a PDF comprimido</h1>
+  <p class="sub">Convierte planos escaneados (TIFF) a PDF con compresión. Ideal para archivos de cientos de MB.</p>
+
+  <div id="alerts"></div>
+
+  <div class="sec">
+    <div class="st">1. Seleccionar archivos TIFF</div>
+    <div class="upload-zone" id="dropZone">
+      <div class="ic">+</div>
+      <p>Arrastra archivos .tif / .tiff aquí o haz click para seleccionar</p>
+    </div>
+    <input type="file" id="fileInput" accept=".tif,.tiff" multiple class="hide">
+    <ul class="file-list" id="fileList"></ul>
+  </div>
+
+  <div class="sec">
+    <div class="st">2. Configurar compresión</div>
+    <div class="row">
+      <div class="f">
+        <label for="qSelect">Calidad</label>
+        <select id="qSelect">
+          <option value="high">Alta calidad (JPEG Q92)</option>
+          <option value="balanced">Balanceado (JPEG Q75)</option>
+          <option value="lossless">Sin pérdida (PNG)</option>
+        </select>
+      </div>
+      <div class="f">
+        <label for="dpiSelect">Reducir resolución</label>
+        <select id="dpiSelect">
+          <option value="0">Original (sin reducir)</option>
+          <option value="300">300 DPI</option>
+          <option value="200">200 DPI</option>
+          <option value="150">150 DPI</option>
+          <option value="72">72 DPI</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <button class="btn btn-p" id="btnConvert" onclick="convertir()" disabled>Convertir a PDF</button>
+
+  <div id="pResult" class="sec hide">
+    <div class="st">3. Resultado</div>
+    <div class="result-card">
+      <div class="desc">Archivo original</div>
+      <div class="big" id="origSize">—</div>
+      <div class="desc" style="margin-top:8px;">PDF comprimido</div>
+      <div class="big-s" id="compSize">—</div>
+      <div class="desc" style="margin-top:8px;">Páginas: <strong id="pageCount">0</strong></div>
+      <div class="sz-bar">
+        <span class="lbl" id="pctLbl">0%</span>
+        <div class="bar"><div class="fill" id="szFill" style="width:0%"></div></div>
+      </div>
+      <a class="btn btn-g" id="btnDwl" href="/download-convert">Descargar PDF</a>
+      <button class="btn btn-o" onclick="resetear()" style="margin-top:8px;">Convertir otro</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const dropZone = document.getElementById('dropZone');
+  const fileInput = document.getElementById('fileInput');
+  const fileList = document.getElementById('fileList');
+  const btnConvert = document.getElementById('btnConvert');
+  const alerts = document.getElementById('alerts');
+  let selectedFiles = [];
+
+  dropZone.addEventListener('click', () => fileInput.click());
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+  dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('dragover'); if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files); });
+  fileInput.addEventListener('change', () => { if (fileInput.files.length) addFiles(fileInput.files); fileInput.value = ''; });
+
+  function addFiles(files) {
+    for (const f of files) {
+      const n = f.name.toLowerCase();
+      if (!n.endsWith('.tif') && !n.endsWith('.tiff')) { al('Solo .tif/.tiff: ' + f.name, 'e'); continue; }
+      if (!selectedFiles.find(x => x.name === f.name && x.size === f.size)) selectedFiles.push(f);
+    }
+    renderFiles();
+  }
+
+  function renderFiles() {
+    fileList.innerHTML = '';
+    let total = 0;
+    for (const f of selectedFiles) {
+      total += f.size;
+      const li = document.createElement('li');
+      li.innerHTML = '<span><strong>' + f.name + '</strong> <span class="sz">(' + fmt(f.size) + ')</span></span> <span onclick="removeFile(\'' + f.name + ',' + f.size + '\')" style="cursor:pointer;color:#ef4444;font-weight:700">✕</span>';
+      fileList.appendChild(li);
+    }
+    const t = document.createElement('li');
+    t.style.background = '#e8ecf8';
+    t.innerHTML = '<span><strong>' + selectedFiles.length + ' archivo' + (selectedFiles.length !== 1 ? 's' : '') + '</strong> <span class="sz">(' + fmt(total) + ')</span></span>';
+    fileList.appendChild(t);
+    document.getElementById('pctLbl').textContent = '0%';
+    document.getElementById('szFill').style.width = '0%';
+    document.getElementById('pResult').classList.add('hide');
+    btnConvert.disabled = selectedFiles.length === 0;
+  }
+
+  function removeFile(key) { const [name, size] = key.split(','); selectedFiles = selectedFiles.filter(f => !(f.name === name && f.size === parseInt(size))); renderFiles(); }
+  function fmt(b) { if (!b) return '0 B'; const u = ['B','KB','MB','GB']; let i=0, s=b; while (s>=1024 && i<u.length-1) { s/=1024; i++; } return s.toFixed(i>0?1:0)+' '+u[i]; }
+  function al(m,t) { const d = document.createElement('div'); d.className='alert alert-'+t; d.textContent=m; alerts.appendChild(d); setTimeout(() => d.remove(), 6000); }
+
+  async function convertir() {
+    if (!selectedFiles.length) return;
+    btnConvert.disabled = true; btnConvert.textContent = 'Convirtiendo...';
+    const fd = new FormData();
+    for (const f of selectedFiles) fd.append('files[]', f);
+    fd.append('quality', document.getElementById('qSelect').value);
+    const dpi = document.getElementById('dpiSelect').value;
+    if (dpi !== '0') fd.append('dpi', dpi);
+    try {
+      const r = await fetch('/convert-tiff', { method: 'POST', body: fd });
+      const j = await r.json();
+      if (j.error) { al(j.error, 'e'); btnConvert.disabled = false; btnConvert.textContent = 'Convertir a PDF'; return; }
+      document.getElementById('pResult').classList.remove('hide');
+      document.getElementById('origSize').textContent = fmt(j.original_size);
+      document.getElementById('compSize').textContent = fmt(j.compressed_size);
+      document.getElementById('pageCount').textContent = j.pages;
+      const pct = j.original_size ? Math.min(100, (1 - j.compressed_size / j.original_size) * 100) : 0;
+      document.getElementById('pctLbl').textContent = '-' + pct.toFixed(1) + '%';
+      document.getElementById('szFill').style.width = pct + '%';
+      document.getElementById('szFill').className = pct < 30 ? 'fill partial' : 'fill';
+      al('PDF generado: ' + j.pages + ' págs, ' + fmt(j.compressed_size) + ' (-' + pct.toFixed(1) + '%)', 's');
+    } catch (e) { al('Error de conexión', 'e'); }
+    btnConvert.disabled = false; btnConvert.textContent = 'Convertir a PDF';
+  }
+
+  function resetear() {
+    selectedFiles = [];
+    fileList.innerHTML = '';
+    btnConvert.disabled = true;
+    document.getElementById('pResult').classList.add('hide');
+    document.getElementById('szFill').style.width = '0%';
+    document.getElementById('pctLbl').textContent = '0%';
+    document.getElementById('origSize').textContent = '—';
+    document.getElementById('compSize').textContent = '—';
+    document.getElementById('pageCount').textContent = '0';
+  }
+</script>
+{% endblock %}

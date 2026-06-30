@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+{% block title %}Unir PDFs{% endblock %}
+
+{% block content %}
+<div class="container">
+  <h1>Unir PDFs</h1>
+  <p class="sub">Selecciona varios PDFs y ordénalos con drag & drop. Se unirán en ese orden.</p>
+  <div id="alerts"></div>
+
+  <div id="pIn">
+    <div class="sec">
+      <div class="st">1. Seleccionar PDFs</div>
+      <div class="upload-zone" id="dropZone">
+        <div class="ic">+</div>
+        <p>Arrastra PDFs aquí o haz click para seleccionar</p>
+      </div>
+      <input type="file" id="fileInput" accept=".pdf" multiple class="hide">
+    </div>
+
+    <div class="sec">
+      <div class="st">2. Ordenar (arrastra para reordenar)</div>
+      <ul class="sort-list" id="sortList">
+        <li style="color:#aaa; justify-content:center; cursor:default; border-style:dashed;"><span>— No hay archivos —</span></li>
+      </ul>
+    </div>
+
+    <button class="btn btn-p" id="btnMerge" onclick="unir()" disabled>Unir PDFs</button>
+  </div>
+
+  <div id="pOut" class="sec hide">
+    <div class="st">3. Resultado</div>
+    <div class="result-card">
+      <div class="big" id="resPages">0</div>
+      <div class="desc">páginas en total</div>
+      <div class="desc" style="margin-top:4px; color:#888; font-size:13px;">
+        <span id="resFiles">0</span> archivos unidos
+      </div>
+      <a class="btn btn-g" id="btnDwl" href="/download-multi" style="margin-top:16px;">Descargar PDF unido</a>
+      <button class="btn btn-o" onclick="resetear()" style="margin-top:8px;">Unir otro</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const dropZone = document.getElementById('dropZone');
+  const fileInput = document.getElementById('fileInput');
+  const sortList = document.getElementById('sortList');
+  const btnMerge = document.getElementById('btnMerge');
+  let files = [];
+
+  dropZone.addEventListener('click', () => fileInput.click());
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
+  });
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files.length) addFiles(fileInput.files);
+    fileInput.value = '';
+  });
+
+  function addFiles(newFiles) {
+    for (const f of newFiles) {
+      if (!f.name.toLowerCase().endsWith('.pdf')) { al('Solo PDFs: ' + f.name, 'e'); continue; }
+      if (!files.find(x => x.name === f.name && x.size === f.size)) {
+        files.push(f);
+        getPageCount(f).then(p => { f._pages = p; renderList(); });
+      }
+    }
+    renderList();
+  }
+
+  async function getPageCount(f) {
+    const fd = new FormData();
+    fd.append('pdf', f);
+    try { const r = await fetch('/page-count', { method: 'POST', body: fd }); const j = await r.json(); return j.pages || 1; }
+    catch (e) { return '?'; }
+  }
+
+  function renderList() {
+    sortList.innerHTML = '';
+    if (!files.length) {
+      sortList.innerHTML = '<li style="color:#aaa;justify-content:center;cursor:default;border-style:dashed"><span>— No hay archivos —</span></li>';
+      btnMerge.disabled = true; return;
+    }
+    files.forEach((f, i) => {
+      const li = document.createElement('li');
+      li.draggable = true; li.dataset.index = i;
+      li.innerHTML = '<span class="handle">⠿</span><span class="name">' + f.name + '</span><span class="pages">' + (f._pages || '?') + ' pág' + (f._pages !== 1 ? 's' : '') + '</span><span class="del" onclick="removeFile(' + i + ')">✕</span>';
+      li.addEventListener('dragstart', onDragStart);
+      li.addEventListener('dragend', onDragEnd);
+      li.addEventListener('dragover', onDragOver);
+      li.addEventListener('dragenter', onDragEnter);
+      li.addEventListener('dragleave', onDragLeave);
+      li.addEventListener('drop', onDrop);
+      sortList.appendChild(li);
+    });
+    btnMerge.disabled = false;
+  }
+
+  function removeFile(i) { files.splice(i, 1); renderList(); }
+
+  let dragSrcIdx = null;
+  function onDragStart(e) { dragSrcIdx = parseInt(e.target.dataset.index); e.target.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', ''); }
+  function onDragEnd(e) { e.target.classList.remove('dragging'); document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over')); }
+  function onDragOver(e) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }
+  function onDragEnter(e) { e.preventDefault(); if (e.target.tagName === 'LI') e.target.classList.add('drag-over'); }
+  function onDragLeave(e) { e.target.classList.remove('drag-over'); }
+  function onDrop(e) {
+    e.preventDefault();
+    const targetLi = e.target.closest('li');
+    if (!targetLi) return;
+    const targetIdx = parseInt(targetLi.dataset.index);
+    if (dragSrcIdx === null || dragSrcIdx === targetIdx) return;
+    const [moved] = files.splice(dragSrcIdx, 1);
+    files.splice(targetIdx, 0, moved);
+    dragSrcIdx = null;
+    renderList();
+  }
+
+  function al(m, t) {
+    const el = document.createElement('div');
+    el.className = 'toast toast-' + t;
+    el.textContent = m;
+    const box = document.getElementById('toast');
+    if (!box) return;
+    box.appendChild(el);
+    setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 300); }, 4000);
+  }
+
+  async function unir() {
+    if (!files.length) return;
+    btnMerge.disabled = true; btnMerge.textContent = 'Uniendo...';
+    const fd = new FormData();
+    for (const f of files) fd.append('files[]', f);
+    fd.append('order', JSON.stringify(files.map((_, i) => i)));
+    try {
+      const r = await fetch('/merge-multi', { method: 'POST', body: fd });
+      const j = await r.json();
+      if (j.error) { al(j.error, 'e'); btnMerge.disabled = false; btnMerge.textContent = 'Unir PDFs'; return; }
+      document.getElementById('pIn').classList.add('hide');
+      document.getElementById('pOut').classList.remove('hide');
+      document.getElementById('resPages').textContent = j.pages;
+      document.getElementById('resFiles').textContent = j.files;
+      al('PDF unido: ' + j.pages + ' págs', 's');
+    } catch (e) { al('Error de conexión', 'e'); }
+    btnMerge.disabled = false; btnMerge.textContent = 'Unir PDFs';
+  }
+
+  function resetear() {
+    files = [];
+    document.getElementById('pIn').classList.remove('hide');
+    document.getElementById('pOut').classList.add('hide');
+    renderList();
+  }
+</script>
+{% endblock %}

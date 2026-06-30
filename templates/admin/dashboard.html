@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - PDF Tools{% endblock %}
+
+{% block content %}
+{% if not admin %}
+  <div class="form-card" style="max-width:480px; margin:4rem auto; text-align:center;">
+    <h1>Acceso restringido</h1>
+    <p style="margin-top:1rem; color:#888;">No tienes permisos de administrador.</p>
+  </div>
+{% else %}
+  <h1>Dashboard</h1>
+  <p class="subtitle">Resumen de uso de la plataforma</p>
+
+  <div class="pg" style="margin-bottom:24px;">
+    <div class="s"><div class="n">{{ total_users }}</div><div class="l">Usuarios</div></div>
+    <div class="s"><div class="n">{{ total_ops }}</div><div class="l">Operaciones totales</div></div>
+    <div class="s"><div class="n">{{ today_ops }}</div><div class="l">Hoy</div></div>
+    <div class="s"><div class="n">{{ week_ops }}</div><div class="l">Esta semana</div></div>
+  </div>
+
+  <div class="row" style="gap:24px;">
+    <div class="f" style="flex:1;">
+      <div class="container">
+        <h1 style="font-size:16px;">Operaciones por tipo</h1>
+        <ul class="sort-list">
+          {% for action, count in by_action %}
+            <li style="cursor:default;"><span class="name">{{ action }}</span><span class="pages">{{ count }}</span></li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+    <div class="f" style="flex:1;">
+      <div class="container">
+        <h1 style="font-size:16px;">Usuarios más activos</h1>
+        <ul class="sort-list">
+          {% for username, count in top_users %}
+            <li style="cursor:default;"><span class="name">{{ username }}</span><span class="pages">{{ count }}</span></li>
+          {% else %}
+            <li style="cursor:default; color:#888;">Sin datos</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="container" style="margin-top:24px;">
+    <h1 style="font-size:16px;">Últimas operaciones (50)</h1>
+    <div style="margin-top:12px; overflow-x:auto;">
+      <table style="width:100%; border-collapse:collapse; font-size:13px;">
+        <thead>
+          <tr style="background:#f8f9fb;">
+            <th style="padding:8px 12px; text-align:left;">Fecha</th>
+            <th style="padding:8px 12px; text-align:left;">Usuario</th>
+            <th style="padding:8px 12px; text-align:left;">Acción</th>
+            <th style="padding:8px 12px; text-align:right;">Estado</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for log in recent_logs %}
+            <tr style="border-top:1px solid #eee;">
+              <td style="padding:8px 12px; color:#888;">{{ log.created_at.strftime('%d/%m %H:%M') }}</td>
+              <td style="padding:8px 12px;">{{ log.user.username if log.user else 'Anónimo' }}</td>
+              <td style="padding:8px 12px;"><span class="tg">{{ log.action }}</span></td>
+              <td style="padding:8px 12px; text-align:right;">
+                {% if log.success %}<span class="tg-g">OK</span>{% else %}<span class="tg-r">Error</span>{% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+{% endif %}
+{% endblock %}

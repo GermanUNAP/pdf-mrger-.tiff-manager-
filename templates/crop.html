@@ -1,0 +1,314 @@
+{% extends "base.html" %}
+{% block title %}Recortar PDF{% endblock %}
+{% block head_scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+  <h1>Recortar PDF</h1>
+  <p class="sub">
+    Elimina bordes blancos o áreas no deseadas de cada página.
+    Arrastra las esquinas del recuadro azul para ajustar el área a conservar.
+  </p>
+
+  <div id="uploadPhase">
+    <div class="upload-zone" id="dropZone">
+      <div class="ic">+</div>
+      <p>Arrastra un PDF aquí o haz clic para seleccionar</p>
+    </div>
+    <input type="file" id="fileInput" accept=".pdf" class="hide">
+    <div id="alerts"></div>
+  </div>
+
+  <div id="editorPhase" class="hide">
+    <div class="toolbar">
+      <button class="btn btn-s" id="btnApplyAll">Aplicar a todas</button>
+      <button class="btn btn-o" id="btnReset">Restablecer</button>
+      <button class="btn btn-o" id="btnResetAll">Restablecer todas</button>
+      <span class="info" id="pageInfo"></span>
+      <button class="btn btn-g" id="btnDownload">Recortar y Descargar</button>
+    </div>
+    <div id="pageGrid"></div>
+  </div>
+
+  <div id="loadingPhase" class="loading hide">
+    <div class="spinner"></div>
+    <div>Cargando PDF…</div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+const uploadPhase = document.getElementById('uploadPhase');
+const editorPhase = document.getElementById('editorPhase');
+const loadingPhase = document.getElementById('loadingPhase');
+const pageGrid = document.getElementById('pageGrid');
+const btnApplyAll = document.getElementById('btnApplyAll');
+const btnReset = document.getElementById('btnReset');
+const btnResetAll = document.getElementById('btnResetAll');
+const btnDownload = document.getElementById('btnDownload');
+const pageInfo = document.getElementById('pageInfo');
+let pdfDoc = null;
+let crops = [];
+let currentFile = null;
+
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('dragover'); if (e.dataTransfer.files.length) loadPDF(e.dataTransfer.files[0]); });
+fileInput.addEventListener('change', () => { if (fileInput.files.length) loadPDF(fileInput.files[0]); fileInput.value = ''; });
+
+async function loadPDF(file) {
+  if (!file.name.toLowerCase().endsWith('.pdf')) { al('Solo PDFs', 'e'); return; }
+  currentFile = file;
+  uploadPhase.classList.add('hide');
+  loadingPhase.classList.remove('hide');
+  try {
+    const buf = await file.arrayBuffer();
+    pdfDoc = await pdfjsLib.getDocument({ data: buf }).promise;
+    const n = pdfDoc.numPages;
+    pageInfo.textContent = n + ' página' + (n !== 1 ? 's' : '');
+    await renderAllPages();
+    editorPhase.classList.remove('hide');
+    loadingPhase.classList.add('hide');
+  } catch (e) { al('Error al cargar PDF: ' + e.message, 'e'); uploadPhase.classList.remove('hide'); loadingPhase.classList.add('hide'); }
+}
+
+function al(m, t) {
+  const el = document.createElement('div');
+  el.className = 'toast toast-' + t;
+  el.textContent = m;
+  const box = document.getElementById('toast');
+  if (!box) return;
+  box.appendChild(el);
+  setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 300); }, 4000);
+}
+
+async function renderAllPages() {
+  pageGrid.innerHTML = '';
+  const n = pdfDoc.numPages;
+  crops = Array.from({ length: n }, () => ({ x: 0, y: 0, w: 1, h: 1 }));
+  for (let i = 1; i <= n; i++) {
+    const wrap = document.createElement('div');
+    wrap.className = 'pg-wrap';
+    const numEl = document.createElement('div');
+    numEl.className = 'pg-num';
+    numEl.textContent = 'Pág ' + i;
+    wrap.appendChild(numEl);
+    const inner = document.createElement('div');
+    inner.className = 'pg-inner';
+    inner.id = 'inner-' + i;
+    const canvas = document.createElement('canvas');
+    canvas.id = 'cv-' + i;
+    inner.appendChild(canvas);
+    wrap.appendChild(inner);
+    const ol = document.createElement('div');
+    ol.className = 'outside-overlay';
+    ol.id = 'ol-' + i;
+    inner.appendChild(ol);
+    pageGrid.appendChild(wrap);
+
+    const page = await pdfDoc.getPage(i);
+    const vp = page.getViewport({ scale: 1 });
+    const maxW = 500;
+    const scale = maxW / vp.width;
+    const sVp = page.getViewport({ scale });
+    canvas.width = sVp.width;
+    canvas.height = sVp.height;
+    const ctx = canvas.getContext('2d');
+    await page.render({ canvasContext: ctx, viewport: sVp }).promise;
+    initCropRect(i, inner, scale);
+    updateShade(i);
+  }
+}
+
+function initCropRect(pageIdx, container, scale) {
+  const idx = pageIdx - 1;
+  const rect = document.createElement('div');
+  rect.className = 'crop-rect active';
+  rect.id = 'cr-' + pageIdx;
+  for (const pos of ['tl', 'tr', 'bl', 'br']) {
+    const h = document.createElement('div');
+    h.className = 'handle ' + pos;
+    rect.appendChild(h);
+  }
+  const label = document.createElement('div');
+  label.className = 'dim-label';
+  label.id = 'dl-' + pageIdx;
+  rect.appendChild(label);
+  container.appendChild(rect);
+  const cw = container.offsetWidth || container.querySelector('canvas').width;
+  const ch = container.querySelector('canvas').height;
+  rect.style.left = '0px';
+  rect.style.top = '0px';
+  rect.style.width = cw + 'px';
+  rect.style.height = ch + 'px';
+  addCropDrag(rect, container, idx);
+}
+
+function addCropDrag(rect, container, idx) {
+  let state = null;
+  const handles = rect.querySelectorAll('.handle');
+  const getBounds = () => { const pw = container.querySelector('canvas').width; const ph = container.querySelector('canvas').height; return { pw, ph }; };
+  const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+  const toPct = (l, t, w, h, b) => ({ x: l / b.pw, y: t / b.ph, w: w / b.pw, h: h / b.ph });
+
+  handles.forEach(h => {
+    h.addEventListener('mousedown', e => {
+      e.preventDefault(); e.stopPropagation();
+      const cls = [...h.classList].find(c => ['tl','tr','bl','br'].includes(c));
+      const b = getBounds();
+      state = { type: 'resize', corner: cls, startX: e.clientX, startY: e.clientY, origL: rect.offsetLeft, origT: rect.offsetTop, origW: parseFloat(rect.style.width), origH: parseFloat(rect.style.height), bounds: b };
+    });
+  });
+
+  rect.addEventListener('mousedown', e => {
+    if (e.target.classList.contains('handle')) return;
+    if (e.target !== rect) return;
+    e.preventDefault();
+    const b = getBounds();
+    state = { type: 'move', startX: e.clientX, startY: e.clientY, origL: rect.offsetLeft, origT: rect.offsetTop, origW: parseFloat(rect.style.width), origH: parseFloat(rect.style.height), bounds: b };
+  });
+
+  document.addEventListener('mousemove', e => {
+    if (!state) return;
+    const dx = e.clientX - state.startX;
+    const dy = e.clientY - state.startY;
+    const { bounds: b } = state;
+    if (state.type === 'move') {
+      let nl = clamp(state.origL + dx, 0, b.pw - state.origW);
+      let nt = clamp(state.origT + dy, 0, b.ph - state.origH);
+      rect.style.left = nl + 'px';
+      rect.style.top = nt + 'px';
+      crops[idx] = toPct(nl, nt, state.origW, state.origH, b);
+      updateShade(idx + 1);
+      updateLabel(idx);
+    } else if (state.type === 'resize') {
+      let l = state.origL, t = state.origT, w = state.origW, h = state.origH;
+      const c = state.corner;
+      if (c.includes('l')) { l = clamp(state.origL + dx, 0, state.origL + state.origW - 10); w = state.origL + state.origW - l; }
+      if (c.includes('r')) { w = clamp(state.origW + dx, 10, b.pw - state.origL); }
+      if (c.includes('t')) { t = clamp(state.origT + dy, 0, state.origT + state.origH - 10); h = state.origT + state.origH - t; }
+      if (c.includes('b')) { h = clamp(state.origH + dy, 10, b.ph - state.origT); }
+      rect.style.left = l + 'px'; rect.style.top = t + 'px'; rect.style.width = w + 'px'; rect.style.height = h + 'px';
+      crops[idx] = toPct(l, t, w, h, b);
+      updateShade(idx + 1);
+      updateLabel(idx);
+    }
+  });
+  document.addEventListener('mouseup', () => { state = null; });
+}
+
+function updateLabel(idx) {
+  const el = document.getElementById('dl-' + (idx + 1));
+  if (!el) return;
+  const c = crops[idx];
+  el.textContent = Math.round(c.w * 100) + '% \u00d7 ' + Math.round(c.h * 100) + '%';
+}
+
+function updateShade(pageIdx) {
+  const idx = pageIdx - 1;
+  const inner = document.getElementById('inner-' + pageIdx);
+  if (!inner) return;
+  let ol = document.getElementById('ol-' + pageIdx);
+  if (!ol) { ol = document.createElement('div'); ol.className = 'outside-overlay'; ol.id = 'ol-' + pageIdx; inner.appendChild(ol); }
+  ol.innerHTML = '';
+  const c = crops[idx];
+  const pw = inner.querySelector('canvas').width || 500;
+  const ph = inner.querySelector('canvas').height || 500;
+  const l = c.x * pw, t = c.y * ph, w = c.w * pw, h = c.h * ph;
+  const regions = [
+    { l: 0, t: 0, w: pw, h: t },
+    { l: 0, t: t + h, w: pw, h: ph - t - h },
+    { l: 0, t: t, w: l, h: h },
+    { l: l + w, t: t, w: pw - l - w, h: h }
+  ];
+  for (const r of regions) {
+    if (r.w > 0 && r.h > 0) {
+      const sh = document.createElement('div');
+      sh.className = 'shade';
+      sh.style.cssText = 'left:' + r.l + 'px; top:' + r.t + 'px; width:' + r.w + 'px; height:' + r.h + 'px;';
+      ol.appendChild(sh);
+    }
+  }
+}
+
+btnApplyAll.addEventListener('click', () => {
+  const n = crops.length;
+  if (!n) return;
+  const ref = crops[0];
+  for (let i = 1; i < n; i++) crops[i] = { ...ref };
+  for (let i = 0; i < n; i++) {
+    const inner = document.getElementById('inner-' + (i + 1));
+    if (!inner) continue;
+    const rect = inner.querySelector('.crop-rect');
+    const pw = inner.querySelector('canvas').width;
+    const ph = inner.querySelector('canvas').height;
+    const c = crops[i];
+    rect.style.left = (c.x * pw) + 'px';
+    rect.style.top = (c.y * ph) + 'px';
+    rect.style.width = (c.w * pw) + 'px';
+    rect.style.height = (c.h * ph) + 'px';
+    updateShade(i + 1);
+    updateLabel(i);
+  }
+  al('Recorte aplicado a todas las páginas', 's');
+});
+
+btnReset.addEventListener('click', () => {
+  if (!crops.length) return;
+  crops[0] = { x: 0, y: 0, w: 1, h: 1 };
+  const inner = document.getElementById('inner-1');
+  if (inner) {
+    const rect = inner.querySelector('.crop-rect');
+    const pw = inner.querySelector('canvas').width;
+    const ph = inner.querySelector('canvas').height;
+    rect.style.left = '0px'; rect.style.top = '0px'; rect.style.width = pw + 'px'; rect.style.height = ph + 'px';
+    updateShade(1); updateLabel(0);
+  }
+});
+
+btnResetAll.addEventListener('click', () => {
+  const n = crops.length;
+  for (let i = 0; i < n; i++) {
+    crops[i] = { x: 0, y: 0, w: 1, h: 1 };
+    const inner = document.getElementById('inner-' + (i + 1));
+    if (inner) {
+      const rect = inner.querySelector('.crop-rect');
+      const pw = inner.querySelector('canvas').width;
+      const ph = inner.querySelector('canvas').height;
+      rect.style.left = '0px'; rect.style.top = '0px'; rect.style.width = pw + 'px'; rect.style.height = ph + 'px';
+      updateShade(i + 1); updateLabel(i);
+    }
+  }
+  al('Todas las páginas restablecidas', 'i');
+});
+
+btnDownload.addEventListener('click', async () => {
+  if (!currentFile) { al('No hay archivo PDF', 'e'); return; }
+  btnDownload.disabled = true; btnDownload.textContent = 'Procesando\u2026';
+  const fd = new FormData();
+  fd.append('pdf', currentFile);
+  fd.append('crops', JSON.stringify(crops));
+  try {
+    const r = await fetch('/crop-pdf', { method: 'POST', body: fd });
+    if (!r.ok) { const j = await r.json(); al(j.error || 'Error al recortar', 'e'); btnDownload.disabled = false; btnDownload.textContent = 'Recortar y Descargar'; return; }
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'pdf_recortado.pdf';
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    al('PDF recortado descargado', 's');
+  } catch (e) { al('Error de conexión', 'e'); }
+  btnDownload.disabled = false; btnDownload.textContent = 'Recortar y Descargar';
+});
+</script>
+{% endblock %}

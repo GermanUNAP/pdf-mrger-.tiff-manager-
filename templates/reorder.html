@@ -1,0 +1,242 @@
+{% extends "base.html" %}
+{% block title %}Reordenar PDF{% endblock %}
+
+{% block head_scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+  .page-card { display:flex; align-items:center; gap:12px; padding:10px 14px; background:#f8f9fb; border:1px solid #eee; border-radius:8px; cursor:grab; transition:all .15s; user-select:none; }
+  .page-card:hover { border-color:#cbd5e1; background:#f0f4ff; }
+  .page-card.dragging { opacity:.3; border-style:dashed; }
+  .page-card.drag-over { border-color:#4a6cf7; background:#eef2ff; box-shadow:0 0 0 2px rgba(74,108,247,.15); }
+  .page-card .handle { color:#bbb; font-size:18px; cursor:grab; user-select:none; flex-shrink:0; width:24px; text-align:center; }
+  .page-card .thumb { width:50px; height:70px; object-fit:cover; border-radius:4px; background:#e5e7eb; flex-shrink:0; border:1px solid #ddd; }
+  .page-card .info { flex:1; min-width:0; }
+  .page-card .name { font-size:13px; font-weight:600; color:#1a1a2e; }
+  .page-card .pg { font-size:12px; color:#888; margin-top:2px; }
+  .page-card .pos { display:flex; align-items:center; gap:4px; flex-shrink:0; }
+  .page-card .pos input { width:48px; padding:4px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; text-align:center; outline:none; }
+  .page-card .pos input:focus { border-color:#4a6cf7; }
+  .page-card .move-btn { background:none; border:none; color:#888; cursor:pointer; padding:4px 6px; border-radius:4px; font-size:14px; transition:all .15s; }
+  .page-card .move-btn:hover { background:#e5e7eb; color:#333; }
+  @media (max-width:640px) { .page-card .thumb { width:36px; height:50px; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+  <h1>Reordenar Páginas</h1>
+  <p class="sub">
+    Arrastra las páginas para reordenarlas o usa los botones de flecha.
+    También puedes escribir el número de posición directamente.
+  </p>
+
+  <div id="uploadPhase">
+    <div class="upload-zone" id="dropZone">
+      <div class="ic">+</div>
+      <p>Arrastra un PDF aquí o haz clic para seleccionar</p>
+    </div>
+    <input type="file" id="fileInput" accept=".pdf" class="hide">
+    <div id="alerts"></div>
+  </div>
+
+  <div id="editorPhase" class="hide">
+    <div class="toolbar">
+      <button class="btn btn-o" id="btnReverse">Invertir orden</button>
+      <button class="btn btn-o" id="btnSortAsc">Ordenar A-Z</button>
+      <button class="btn btn-o" id="btnSortDesc">Ordenar Z-A</button>
+      <span class="info" id="pageInfo"></span>
+      <button class="btn btn-g" id="btnDownload">Reordenar y Descargar</button>
+    </div>
+    <div id="pageGrid"></div>
+  </div>
+
+  <div id="loadingPhase" class="loading hide">
+    <div class="spinner"></div>
+    <div>Cargando PDF…</div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+const uploadPhase = document.getElementById('uploadPhase');
+const editorPhase = document.getElementById('editorPhase');
+const loadingPhase = document.getElementById('loadingPhase');
+const pageGrid = document.getElementById('pageGrid');
+const pageInfo = document.getElementById('pageInfo');
+const btnDownload = document.getElementById('btnDownload');
+const btnReverse = document.getElementById('btnReverse');
+const btnSortAsc = document.getElementById('btnSortAsc');
+const btnSortDesc = document.getElementById('btnSortDesc');
+let pdfDoc = null;
+let pagesData = [];
+let currentFile = null;
+
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('dragover'); if (e.dataTransfer.files.length) loadPDF(e.dataTransfer.files[0]); });
+fileInput.addEventListener('change', () => { if (fileInput.files.length) loadPDF(fileInput.files[0]); fileInput.value = ''; });
+
+async function loadPDF(file) {
+  if (!file.name.toLowerCase().endsWith('.pdf')) { al('Solo archivos PDF', 'e'); return; }
+  currentFile = file;
+  uploadPhase.classList.add('hide');
+  loadingPhase.classList.remove('hide');
+  try {
+    const buf = await file.arrayBuffer();
+    pdfDoc = await pdfjsLib.getDocument({ data: buf }).promise;
+    const n = pdfDoc.numPages;
+    pagesData = Array.from({ length: n }, (_, i) => ({ index: i, label: 'Pág ' + (i + 1) }));
+    pageInfo.textContent = n + ' página' + (n !== 1 ? 's' : '');
+    await renderPages();
+    editorPhase.classList.remove('hide');
+    loadingPhase.classList.add('hide');
+  } catch (e) { al('Error al cargar PDF: ' + e.message, 'e'); uploadPhase.classList.remove('hide'); loadingPhase.classList.add('hide'); }
+}
+
+function al(m, t) {
+  const el = document.createElement('div');
+  el.className = 'toast toast-' + t;
+  el.textContent = m;
+  const box = document.getElementById('toast');
+  if (!box) return;
+  box.appendChild(el);
+  setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 300); }, 4000);
+}
+
+async function renderPages() {
+  pageGrid.innerHTML = '';
+  for (let i = 0; i < pagesData.length; i++) {
+    const d = pagesData[i];
+    const card = document.createElement('div');
+    card.className = 'page-card';
+    card.draggable = true;
+    card.dataset.index = i;
+
+    const handle = document.createElement('div');
+    handle.className = 'handle';
+    handle.textContent = '⠿';
+    card.appendChild(handle);
+
+    const thumb = document.createElement('img');
+    thumb.className = 'thumb';
+    thumb.id = 'thumb-' + i;
+    thumb.alt = 'Pág ' + (d.index + 1);
+    card.appendChild(thumb);
+
+    const info = document.createElement('div');
+    info.className = 'info';
+    const name = document.createElement('div');
+    name.className = 'name';
+    name.textContent = 'Página ' + (d.index + 1);
+    info.appendChild(name);
+    const pg = document.createElement('div');
+    pg.className = 'pg';
+    pg.textContent = 'Posición actual: ' + (i + 1);
+    info.appendChild(pg);
+    card.appendChild(info);
+
+    const pos = document.createElement('div');
+    pos.className = 'pos';
+
+    const upBtn = document.createElement('button');
+    upBtn.className = 'move-btn';
+    upBtn.textContent = '▲';
+    upBtn.type = 'button';
+    upBtn.addEventListener('click', e => { e.stopPropagation(); movePage(i, i - 1); });
+    pos.appendChild(upBtn);
+
+    const posInput = document.createElement('input');
+    posInput.type = 'number';
+    posInput.value = i + 1;
+    posInput.min = 1;
+    posInput.max = pagesData.length;
+    posInput.addEventListener('change', () => {
+      let val = parseInt(posInput.value);
+      if (isNaN(val) || val < 1) val = 1;
+      if (val > pagesData.length) val = pagesData.length;
+      if (val - 1 !== i) { movePage(i, val - 1); return; }
+      posInput.value = i + 1;
+    });
+    posInput.addEventListener('focus', e => e.target.select());
+    pos.appendChild(posInput);
+
+    const downBtn = document.createElement('button');
+    downBtn.className = 'move-btn';
+    downBtn.textContent = '▼';
+    downBtn.type = 'button';
+    downBtn.addEventListener('click', e => { e.stopPropagation(); movePage(i, i + 1); });
+    pos.appendChild(downBtn);
+
+    card.appendChild(pos);
+    pageGrid.appendChild(card);
+
+    const page = await pdfDoc.getPage(d.index + 1);
+    const vp = page.getViewport({ scale: 0.4 });
+    const canvas = document.createElement('canvas');
+    canvas.width = vp.width;
+    canvas.height = vp.height;
+    const ctx = canvas.getContext('2d');
+    await page.render({ canvasContext: ctx, viewport: vp }).promise;
+    thumb.src = canvas.toDataURL('image/jpeg', 0.7);
+
+    card.addEventListener('dragstart', onDragStart);
+    card.addEventListener('dragend', onDragEnd);
+    card.addEventListener('dragover', onDragOver);
+    card.addEventListener('dragleave', onDragLeave);
+    card.addEventListener('drop', onDrop);
+  }
+}
+
+let dragSrcIndex = null;
+
+function onDragStart(e) { dragSrcIndex = parseInt(this.dataset.index); this.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', this.dataset.index); }
+function onDragEnd(e) { this.classList.remove('dragging'); document.querySelectorAll('.page-card.drag-over').forEach(el => el.classList.remove('drag-over')); }
+function onDragOver(e) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; const idx = parseInt(this.dataset.index); if (idx !== dragSrcIndex) this.classList.add('drag-over'); }
+function onDragLeave(e) { this.classList.remove('drag-over'); }
+function onDrop(e) { e.preventDefault(); this.classList.remove('drag-over'); const fromIdx = dragSrcIndex; const toIdx = parseInt(this.dataset.index); if (fromIdx === toIdx || fromIdx === null) return; movePage(fromIdx, toIdx); }
+
+function movePage(fromIdx, toIdx) {
+  if (fromIdx < 0 || fromIdx >= pagesData.length || toIdx < 0 || toIdx >= pagesData.length) return;
+  if (fromIdx === toIdx) return;
+  const [moved] = pagesData.splice(fromIdx, 1);
+  pagesData.splice(toIdx, 0, moved);
+  renderPages();
+  al('Página movida a posición ' + (toIdx + 1), 's');
+}
+
+btnReverse.addEventListener('click', () => { pagesData.reverse(); renderPages(); al('Orden invertido', 's'); });
+btnSortAsc.addEventListener('click', () => { pagesData.sort((a, b) => a.index - b.index); renderPages(); al('Ordenado A-Z', 's'); });
+btnSortDesc.addEventListener('click', () => { pagesData.sort((a, b) => b.index - a.index); renderPages(); al('Ordenado Z-A', 's'); });
+
+btnDownload.addEventListener('click', async () => {
+  if (!currentFile) { al('No hay archivo PDF', 'e'); return; }
+  btnDownload.disabled = true; btnDownload.textContent = 'Procesando\u2026';
+  const order = pagesData.map(d => d.index);
+  const fd = new FormData();
+  fd.append('pdf', currentFile);
+  fd.append('order', JSON.stringify(order));
+  try {
+    const r = await fetch('/reorder-pdf', { method: 'POST', body: fd });
+    if (!r.ok) { const j = await r.json(); al(j.error || 'Error al reordenar', 'e'); btnDownload.disabled = false; btnDownload.textContent = 'Reordenar y Descargar'; return; }
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'pdf_reordenado.pdf';
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    al('PDF reordenado descargado', 's');
+  } catch (e) { al('Error de conexión', 'e'); }
+  btnDownload.disabled = false; btnDownload.textContent = 'Reordenar y Descargar';
+});
+</script>
+{% endblock %}

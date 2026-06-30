@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}PDF Tools{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+  {% block extra_css %}{% endblock %}
+  {% block head_scripts %}{% endblock %}
+</head>
+<body>
+  <div class="wrapper">
+    <aside class="sidebar">
+      <div class="logo"><span>PDF</span> Tools</div>
+      <nav class="side-nav">
+        <a href="/" {% if request.path == '/' %}class="active"{% endif %}><i></i> PDF Merger</a>
+        <a href="/merge-multiple" {% if request.path == '/merge-multiple' %}class="active"{% endif %}><i></i> Unir PDFs</a>
+        <a href="/find" {% if request.path == '/find' %}class="active"{% endif %}><i></i> Buscar faltantes</a>
+        <a href="/convert" {% if request.path == '/convert' %}class="active"{% endif %}><i></i> TIFF a PDF</a>
+        <a href="/crop" {% if request.path == '/crop' %}class="active"{% endif %}><i></i> Recortar PDF</a>
+        <a href="/reorder" {% if request.path == '/reorder' %}class="active"{% endif %}><i></i> Reordenar</a>
+        <a href="/remove-pages" {% if request.path == '/remove-pages' %}class="active"{% endif %}><i></i> Quitar páginas</a>
+        <a href="/compress" {% if request.path == '/compress' %}class="active"{% endif %}><i></i> Reducir PDFs</a>
+      </nav>
+      {% if current_user.is_authenticated and current_user.is_admin %}
+        <div class="admin-nav">
+          <div class="admin-label">Admin</div>
+          <a href="{{ url_for('admin.dashboard') }}" {% if request.path.startswith('/admin') and request.path != '/admin/export' and request.path != '/admin/consent' %}class="active"{% endif %}><i></i> Dashboard</a>
+          <a href="{{ url_for('admin.export_page') }}" {% if request.path == '/admin/export' %}class="active"{% endif %}><i></i> Exportar datos</a>
+          <a href="{{ url_for('admin.consent') }}" {% if request.path == '/admin/consent' %}class="active"{% endif %}><i></i> Consentimiento</a>
+        </div>
+      {% endif %}
+      <div class="auth-nav">
+        {% if current_user.is_authenticated %}
+          <span class="user-info">{{ current_user.username }}</span>
+          <a href="{{ url_for('auth.logout') }}" class="btn-logout">Cerrar sesión</a>
+        {% else %}
+          <a href="{{ url_for('auth.login') }}" class="btn-login">Iniciar sesión</a>
+          <a href="{{ url_for('auth.register') }}" class="btn-register">Registrarse</a>
+        {% endif %}
+      </div>
+    </aside>
+    <main class="main">
+      <div id="toast"></div>
+      <div class="flash">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for cat, msg in messages %}
+              <div class="msg msg-{{ cat }}">{{ msg }}</div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
+      </div>
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+  {% block scripts %}{% endblock %}
+</body>
+</html>
