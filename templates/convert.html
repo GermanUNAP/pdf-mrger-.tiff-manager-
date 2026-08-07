@@ -1,5 +1,6 @@
 ﻿{% extends "base.html" %}
-{% block title %}Convertir TIFF a PDF{% endblock %}
+{% block title %}Convert TIFF to PDF | Convertir TIFF a PDF{% endblock %}
+{% block meta_description %}Convert TIFF images to PDF documents directly in your browser. Convertir imágenes TIFF a PDF.{% endblock %}
 
 {% block head_scripts %}
 <script src="https://unpkg.com/utif@3.1.0/UTIF.js"></script>
@@ -10,6 +11,11 @@
 <div class="container">
   <h1>Convertir TIFF a PDF</h1>
   <p class="sub">Convierte archivos TIFF a PDF directamente en tu dispositivo. Los archivos <strong>no se suben al servidor</strong>, todo se procesa en tu navegador.</p>
+
+  <div class="info-card">
+    <div class="info-card-row"><span class="label">How it works / Cómo funciona</span></div>
+    <p style="font-size:13px;color:#666;line-height:1.6;margin-top:8px">Select one or more TIFF/TIF image files. Each image becomes one page in the PDF. You can adjust JPEG quality and scale to control file size. Everything is processed in your browser — files are NOT uploaded. / Selecciona uno o más archivos TIFF/TIF. Cada imagen se convierte en una página del PDF. Puedes ajustar la calidad JPEG y escala para controlar el tamaño. Todo se procesa en tu navegador.</p>
+  </div>
 
   <div id="alerts"></div>
 

@@ -1,5 +1,6 @@
 {% extends "base.html" %}
-{% block title %}Quitar páginas{% endblock %}
+{% block title %}Remove PDF Pages | Eliminar Páginas PDF{% endblock %}
+{% block meta_description %}Remove specific pages from a PDF document. Eliminar páginas específicas de un documento PDF.{% endblock %}
 
 {% block content %}
 <div class="container">
@@ -7,6 +8,11 @@
   <p class="sub">
     Elimina páginas específicas de un PDF. Usa números sueltos, comas o guiones para rangos.
   </p>
+
+  <div class="info-card">
+    <div class="info-card-row"><span class="label">How it works / Cómo funciona</span></div>
+    <p style="font-size:13px;color:#666;line-height:1.6;margin-top:8px">Enter the page numbers to remove (e.g., 1,3,5-8,12). Supports individual numbers and ranges. The selected pages will be deleted from the PDF. / Ingresa los números de página a eliminar (ej: 1,3,5-8,12). Soporta números individuales y rangos. Las páginas seleccionadas se eliminarán del PDF.</p>
+  </div>
 
   <div id="alerts"></div>
 

@@ -1,10 +1,16 @@
 {% extends "base.html" %}
-{% block title %}PDF Merger - Insertar páginas{% endblock %}
+{% block title %}PDF Merger - Insert Pages into PDF | Unir Páginas PDF{% endblock %}
+{% block meta_description %}Merge PDFs by inserting pages at specific positions. Free online tool. Fusionar PDFs insertando páginas en posiciones específicas.{% endblock %}
 
 {% block content %}
 <div class="container">
   <h1>PDF Merger</h1>
   <p class="subtitle">Inserta páginas PDF en posiciones específicas de un PDF base</p>
+
+  <div class="info-card">
+    <div class="info-card-row"><span class="label">How it works / Cómo funciona</span></div>
+    <p style="font-size:13px;color:#666;line-height:1.6;margin-top:8px">Upload a base PDF and add missing pages from other PDFs. Specify after which page each insertion should go (0 = at the beginning). The page numbers refer to the original base PDF — the system adjusts automatically when you insert multiple files. / Sube un PDF base y agrega páginas faltantes de otros PDFs. Especifica después de qué página va cada inserción (0 = al inicio). Los números de página se refieren al PDF base original.</p>
+  </div>
 
   <div id="alerts"></div>
 

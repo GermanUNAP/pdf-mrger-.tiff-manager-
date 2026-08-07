@@ -60,6 +60,29 @@ def parse_pages_to_remove(input_str, total):
     return sorted(to_remove)
 
 
+def parse_pages_set(input_str, total):
+    parts = [p.strip() for p in input_str.split(',')]
+    pages = set()
+    for part in parts:
+        if '-' in part:
+            a, b = part.split('-', 1)
+            try:
+                start, end = int(a.strip()), int(b.strip())
+                for p in range(start, end + 1):
+                    if 1 <= p <= total:
+                        pages.add(p)
+            except ValueError:
+                continue
+        else:
+            try:
+                p = int(part)
+                if 1 <= p <= total:
+                    pages.add(p)
+            except ValueError:
+                continue
+    return pages
+
+
 def compress_pdf(pdf_path, jpeg_quality, target_dpi, remove_meta, output_dir, logger=None):
     basename = os.path.splitext(os.path.basename(pdf_path))[0]
     out_path = os.path.join(output_dir, f'{basename}_reducido.pdf')

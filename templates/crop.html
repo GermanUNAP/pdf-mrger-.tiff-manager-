@@ -1,5 +1,6 @@
 {% extends "base.html" %}
-{% block title %}Recortar PDF{% endblock %}
+{% block title %}Crop PDF Pages | Recortar Páginas PDF{% endblock %}
+{% block meta_description %}Crop and trim PDF page margins visually. Recortar márgenes de páginas PDF visualmente.{% endblock %}
 {% block head_scripts %}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 {% endblock %}
@@ -11,6 +12,11 @@
     Elimina bordes blancos o áreas no deseadas de cada página.
     Arrastra las esquinas del recuadro azul para ajustar el área a conservar.
   </p>
+
+  <div class="info-card">
+    <div class="info-card-row"><span class="label">How it works / Cómo funciona</span></div>
+    <p style="font-size:13px;color:#666;line-height:1.6;margin-top:8px">Upload a PDF, then drag the blue rectangle on each page to select the area to keep. Everything outside the rectangle will be trimmed. Adjust handles to resize. / Sube un PDF, luego arrastra el rectángulo azul en cada página para seleccionar el área a conservar. Todo fuera del rectángulo se recortará.</p>
+  </div>
 
   <div id="uploadPhase">
     <div class="upload-zone" id="dropZone">

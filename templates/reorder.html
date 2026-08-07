@@ -1,5 +1,6 @@
 {% extends "base.html" %}
-{% block title %}Reordenar PDF{% endblock %}
+{% block title %}Reorder PDF Pages | Reordenar Páginas PDF{% endblock %}
+{% block meta_description %}Drag and drop to reorder PDF pages. Reordenar páginas PDF con arrastrar y soltar.{% endblock %}
 
 {% block head_scripts %}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -32,6 +33,11 @@
     Arrastra las páginas para reordenarlas o usa los botones de flecha.
     También puedes escribir el número de posición directamente.
   </p>
+
+  <div class="info-card">
+    <div class="info-card-row"><span class="label">How it works / Cómo funciona</span></div>
+    <p style="font-size:13px;color:#666;line-height:1.6;margin-top:8px">Upload a PDF and drag the pages to rearrange them in any order you want. All pages must be included in the new order. / Sube un PDF y arrastra las páginas para reorganizarlas en el orden que quieras. Todas las páginas deben incluirse en el nuevo orden.</p>
+  </div>
 
   <div id="uploadPhase">
     <div class="upload-zone" id="dropZone">

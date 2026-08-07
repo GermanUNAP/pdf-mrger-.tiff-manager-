@@ -1,0 +1,12 @@
+Dockerfile
+docker-compose.yml
+nginx.conf
+Procfile
+entrypoint.sh
+.github/
+__pycache__/
+*.pyc
+.env
+flask_session/
+.vercelignore
+README.md

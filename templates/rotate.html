@@ -1,0 +1,242 @@
+{% extends "base.html" %}
+{% block title %}Rotate PDF Pages | Rotar Páginas PDF{% endblock %}
+{% block meta_description %}Rotate PDF pages 90, 180, or 270 degrees. Rotar páginas PDF 90, 180 o 270 grados.{% endblock %}
+
+{% block content %}
+<div class="container">
+  <h1>Rotar Páginas</h1>
+  <p class="sub">
+    Corrige la orientación de páginas escaneadas. Selecciona si las páginas pares, impares o todas necesitan rotación, y el ángulo correcto.
+  </p>
+
+  <div class="info-card">
+    <div class="info-card-row"><span class="label">How it works / Cómo funciona</span></div>
+    <p style="font-size:13px;color:#666;line-height:1.6;margin-top:8px">Upload a PDF and choose to rotate all pages, only even/odd pages, or specific pages. Select 90°, 180°, or 270° rotation. / Sube un PDF y elige rotar todas las páginas, solo pares/impares, o páginas específicas. Selecciona rotación de 90°, 180° o 270°.</p>
+  </div>
+
+  <div id="alerts"></div>
+
+  <div id="uploadPhase">
+    <div class="upload-zone" id="dropZone">
+      <div class="ic">+</div>
+      <p>Arrastra un PDF aquí o haz clic para seleccionar</p>
+    </div>
+    <input type="file" id="fileInput" accept=".pdf" class="hide">
+  </div>
+
+  <div id="editorPhase" class="hide">
+    <div class="info-card">
+      <div class="row"><span class="label">Documento</span><span class="val" id="fileName">-</span></div>
+      <div class="row"><span class="label">Páginas totales</span><span class="val" id="pageCount">-</span></div>
+    </div>
+
+    <div class="sec">
+      <div class="st">1. ¿Qué páginas rotar?</div>
+      <div class="row">
+        <div class="f">
+          <label for="targetSelect">Páginas a rotar</label>
+          <select id="targetSelect">
+            <option value="all">Todas las páginas</option>
+            <option value="even">Solo páginas pares (2, 4, 6, ...)</option>
+            <option value="odd">Solo páginas impares (1, 3, 5, ...)</option>
+            <option value="custom">Páginas específicas</option>
+          </select>
+        </div>
+        <div class="f" id="customPagesWrap" style="display:none">
+          <label for="customPages">Páginas específicas</label>
+          <input type="text" id="customPages" placeholder="Ej: 2,4,6-10">
+          <div class="hint">
+            Números separados por coma y/o rangos con guion.
+            Ej: <b>2</b> · <b>2,4,6</b> · <b>2-10</b> · <b>1,3-7,12</b>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="st">2. Ángulo de rotación</div>
+      <div class="row">
+        <div class="f">
+          <label for="angleSelect">Rotar</label>
+          <select id="angleSelect">
+            <option value="90">90° a la derecha ↻</option>
+            <option value="180">180° (boca abajo) ↕</option>
+            <option value="270">90° a la izquierda ↺</option>
+          </select>
+        </div>
+      </div>
+      <div class="preview-hint" style="margin-top:8px;font-size:12px;color:#888" id="previewHint"></div>
+    </div>
+
+    <button class="btn btn-p" id="btnRotate" onclick="rotar()" disabled>Rotar páginas</button>
+    <div class="loading" id="loading"><div class="spinner"></div><span>Procesando...</span></div>
+  </div>
+
+  <div id="resultPhase" class="hide">
+    <div class="result-card">
+      <div class="label">Páginas rotadas</div>
+      <div class="big" id="rotatedCount">0</div>
+      <div class="label" style="margin-top:4px;" id="resultDetail">-</div>
+      <button class="btn btn-g" id="btnDwl" style="margin-top:16px;">Descargar PDF</button>
+      <button class="btn btn-o" onclick="resetear()" style="margin-top:8px;">Rotar otras</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const dropZone = document.getElementById('dropZone');
+  const fileInput = document.getElementById('fileInput');
+  const uploadPhase = document.getElementById('uploadPhase');
+  const editorPhase = document.getElementById('editorPhase');
+  const resultPhase = document.getElementById('resultPhase');
+  const targetSelect = document.getElementById('targetSelect');
+  const customPagesWrap = document.getElementById('customPagesWrap');
+  const customPages = document.getElementById('customPages');
+  const angleSelect = document.getElementById('angleSelect');
+  const btnRotate = document.getElementById('btnRotate');
+  const previewHint = document.getElementById('previewHint');
+  let currentFile = null;
+  let totalPages = 0;
+  let downloadBlobUrl = null;
+
+  dropZone.addEventListener('click', () => fileInput.click());
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+  dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('dragover'); if (e.dataTransfer.files.length) loadFile(e.dataTransfer.files[0]); });
+  fileInput.addEventListener('change', () => { if (fileInput.files.length) loadFile(fileInput.files[0]); fileInput.value = ''; });
+
+  targetSelect.addEventListener('change', () => {
+    customPagesWrap.style.display = targetSelect.value === 'custom' ? '' : 'none';
+    checkReady();
+  });
+  customPages.addEventListener('input', checkReady);
+
+  function loadFile(file) {
+    if (!file.name.toLowerCase().endsWith('.pdf')) { al('Solo PDFs', 'e'); return; }
+    currentFile = file;
+    uploadPhase.classList.add('hide');
+    editorPhase.classList.remove('hide');
+    const fd = new FormData();
+    fd.append('pdf', file);
+    fetch('/page-count', { method: 'POST', body: fd })
+      .then(r => r.json())
+      .then(j => {
+        totalPages = j.pages;
+        document.getElementById('pageCount').textContent = j.pages;
+        document.getElementById('fileName').textContent = file.name;
+        updateHint();
+        checkReady();
+      })
+      .catch(() => { al('Error al leer PDF', 'e'); });
+  }
+
+  angleSelect.addEventListener('change', updateHint);
+
+  function updateHint() {
+    const angle = angleSelect.value;
+    const target = targetSelect.value;
+    let count = totalPages;
+    if (target === 'even') count = Math.floor(totalPages / 2);
+    else if (target === 'odd') count = Math.ceil(totalPages / 2);
+    else if (target === 'custom') {
+      const pages = parseCustomPages();
+      count = pages.length;
+    }
+    const angleLabel = angle === '180' ? '180° (boca abajo)' : angle === '90' ? '90° derecha ↻' : '90° izquierda ↺';
+    previewHint.textContent = count + ' página' + (count !== 1 ? 's' : '') + ' se rotarán ' + angleLabel;
+  }
+
+  function parseCustomPages() {
+    const input = customPages.value.trim();
+    if (!input) return [];
+    const parts = input.split(',').map(s => s.trim());
+    const pages = new Set();
+    for (const part of parts) {
+      if (part.includes('-')) {
+        const [a, b] = part.split('-').map(x => parseInt(x.trim()));
+        if (!isNaN(a) && !isNaN(b)) {
+          for (let p = Math.min(a, b); p <= Math.max(a, b); p++) {
+            if (p >= 1 && p <= totalPages) pages.add(p);
+          }
+        }
+      } else {
+        const p = parseInt(part);
+        if (!isNaN(p) && p >= 1 && p <= totalPages) pages.add(p);
+      }
+    }
+    return [...pages].sort((a, b) => a - b);
+  }
+
+  function checkReady() {
+    const target = targetSelect.value;
+    if (target === 'custom') {
+      btnRotate.disabled = customPages.value.trim() === '';
+    } else {
+      btnRotate.disabled = totalPages === 0;
+    }
+  }
+
+  function al(m, t) {
+    const el = document.createElement('div');
+    el.className = 'toast toast-' + t;
+    el.textContent = m;
+    const box = document.getElementById('toast');
+    if (!box) return;
+    box.appendChild(el);
+    setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 300); }, 4000);
+  }
+
+  async function rotar() {
+    if (!currentFile) return;
+    btnRotate.disabled = true; btnRotate.textContent = 'Procesando...';
+    const fd = new FormData();
+    fd.append('pdf', currentFile);
+    fd.append('target', targetSelect.value);
+    fd.append('angle', angleSelect.value);
+    if (targetSelect.value === 'custom') {
+      fd.append('pages', customPages.value.trim());
+    }
+    try {
+      const r = await fetch('/rotate-pdf', { method: 'POST', body: fd });
+      if (!r.ok) {
+        const j = await r.json();
+        al(j.error || 'Error al rotar', 'e');
+        btnRotate.disabled = false; btnRotate.textContent = 'Rotar páginas';
+        return;
+      }
+      const blob = await r.blob();
+      downloadBlobUrl = URL.createObjectURL(blob);
+      const rotatedStr = r.headers.get('X-Rotated-Count') || '0';
+      const angleStr = r.headers.get('X-Rotation-Angle') || '';
+      editorPhase.classList.add('hide');
+      resultPhase.classList.remove('hide');
+      document.getElementById('rotatedCount').textContent = rotatedStr;
+      document.getElementById('resultDetail').textContent = rotatedStr + ' páginas rotadas ' + angleStr + '°';
+      al('PDF rotado correctamente', 's');
+    } catch (e) {
+      al('Error de conexión', 'e');
+    }
+    btnRotate.disabled = false; btnRotate.textContent = 'Rotar páginas';
+  }
+
+  document.getElementById('btnDwl').addEventListener('click', () => {
+    if (downloadBlobUrl) {
+      const a = document.createElement('a');
+      a.href = downloadBlobUrl;
+      a.download = 'pdf_rotado.pdf';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+  });
+
+  function resetear() {
+    if (downloadBlobUrl) { URL.revokeObjectURL(downloadBlobUrl); downloadBlobUrl = null; }
+    currentFile = null; totalPages = 0; customPages.value = '';
+    editorPhase.classList.add('hide'); resultPhase.classList.add('hide');
+    uploadPhase.classList.remove('hide');
+  }
+</script>
+{% endblock %}

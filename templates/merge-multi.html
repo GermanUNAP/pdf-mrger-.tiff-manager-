@@ -1,10 +1,17 @@
 {% extends "base.html" %}
-{% block title %}Unir PDFs{% endblock %}
+{% block title %}Merge Multiple PDFs - Combine PDF Files | Unir PDFs{% endblock %}
+{% block meta_description %}Combine multiple PDF files into one document. Drag and drop to reorder. Unir múltiples archivos PDF en uno solo.{% endblock %}
 
 {% block content %}
 <div class="container">
   <h1>Unir PDFs</h1>
   <p class="sub">Selecciona varios PDFs y ordénalos con drag & drop. Se unirán en ese orden.</p>
+
+  <div class="info-card">
+    <div class="info-card-row"><span class="label">How it works / Cómo funciona</span></div>
+    <p style="font-size:13px;color:#666;line-height:1.6;margin-top:8px">Select multiple PDFs, drag and drop to reorder them, then merge into a single document. The final order is exactly as you arrange it. / Selecciona varios PDFs, reordénalos con drag and drop, y únelos en un solo documento. El orden final es exactamente como lo acomodes.</p>
+  </div>
+
   <div id="alerts"></div>
 
   <div id="pIn">
@@ -35,7 +42,7 @@
       <div class="desc" style="margin-top:4px; color:#888; font-size:13px;">
         <span id="resFiles">0</span> archivos unidos
       </div>
-      <a class="btn btn-g" id="btnDwl" href="/download-multi" style="margin-top:16px;">Descargar PDF unido</a>
+      <a class="btn btn-g" id="btnDwl" style="margin-top:16px; display:none;">Descargar PDF unido</a>
       <button class="btn btn-o" onclick="resetear()" style="margin-top:8px;">Unir otro</button>
     </div>
   </div>
@@ -140,13 +147,21 @@
     fd.append('order', JSON.stringify(files.map((_, i) => i)));
     try {
       const r = await fetch('/merge-multi', { method: 'POST', body: fd });
-      const j = await r.json();
-      if (j.error) { al(j.error, 'e'); btnMerge.disabled = false; btnMerge.textContent = 'Unir PDFs'; return; }
+      if (!r.ok) {
+        const err = await r.json();
+        al(err.error || 'Error al unir', 'e');
+        btnMerge.disabled = false; btnMerge.textContent = 'Unir PDFs';
+        return;
+      }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const dlBtn = document.getElementById('btnDwl');
+      dlBtn.href = url;
+      dlBtn.download = 'pdf_unido.pdf';
+      dlBtn.style.display = '';
       document.getElementById('pIn').classList.add('hide');
       document.getElementById('pOut').classList.remove('hide');
-      document.getElementById('resPages').textContent = j.pages;
-      document.getElementById('resFiles').textContent = j.files;
-      al('PDF unido: ' + j.pages + ' págs', 's');
+      al('PDF unido listo para descargar', 's');
     } catch (e) { al('Error de conexión', 'e'); }
     btnMerge.disabled = false; btnMerge.textContent = 'Unir PDFs';
   }

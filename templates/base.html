@@ -3,12 +3,29 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{% block title %}PDF Tools{% endblock %}</title>
+  <title>{% block title %}PDF Tools - Free Online PDF Editor{% endblock %}</title>
+  <meta name="description" content="{% block meta_description %}Free online PDF tools: merge, split, compress, crop, rotate, reorder, resize, and convert PDFs. No registration required. Herramientas PDF gratuitas online.{% endblock %}">
+  <meta name="keywords" content="PDF merger, PDF editor, compress PDF, merge PDFs, split PDF, crop PDF, rotate PDF, resize PDF, reorder PDF pages, remove PDF pages, TIFF to PDF, reduce PDF size, PDF tools online, herramientas PDF, unir PDFs, comprimir PDF, recortar PDF, rotar PDF, redimensionar PDF, convertir TIFF a PDF, PDF gratis">
+  <meta name="author" content="GermanUNAP">
+  <meta name="robots" content="index, follow">
+  <meta property="og:title" content="PDF Tools - Free Online PDF Editor">
+  <meta property="og:description" content="Free online PDF tools: merge, split, compress, crop, rotate, reorder, resize, and convert PDFs. No registration required.">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="es_ES">
+  <meta property="og:locale:alternate" content="en_US">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="PDF Tools - Free Online PDF Editor">
+  <meta name="twitter:description" content="Free online PDF tools: merge, split, compress, crop, rotate, reorder, resize, and convert PDFs.">
+  <link rel="canonical" href="https://pdf-tools-germanunap.vercel.app">
   <link rel="stylesheet" href="/static/style.css">
   {% block extra_css %}{% endblock %}
   {% block head_scripts %}{% endblock %}
 </head>
 <body>
+  <button class="hamburger" id="hamburger" aria-label="Menu">
+    <span></span><span></span><span></span>
+  </button>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
   <div class="wrapper">
     <aside class="sidebar">
       <div class="logo"><span>PDF</span> Tools</div>
@@ -20,25 +37,11 @@
         <a href="/crop" {% if request.path == '/crop' %}class="active"{% endif %}><i></i> Recortar PDF</a>
         <a href="/reorder" {% if request.path == '/reorder' %}class="active"{% endif %}><i></i> Reordenar</a>
         <a href="/remove-pages" {% if request.path == '/remove-pages' %}class="active"{% endif %}><i></i> Quitar páginas</a>
+        <a href="/rotate" {% if request.path == '/rotate' %}class="active"{% endif %}><i></i> Rotar páginas</a>
         <a href="/compress" {% if request.path == '/compress' %}class="active"{% endif %}><i></i> Reducir PDFs</a>
+        <a href="/resize" {% if request.path == '/resize' %}class="active"{% endif %}><i></i> Redimensionar</a>
       </nav>
-      {% if current_user.is_authenticated and current_user.is_admin %}
-        <div class="admin-nav">
-          <div class="admin-label">Admin</div>
-          <a href="{{ url_for('admin.dashboard') }}" {% if request.path.startswith('/admin') and request.path != '/admin/export' and request.path != '/admin/consent' %}class="active"{% endif %}><i></i> Dashboard</a>
-          <a href="{{ url_for('admin.export_page') }}" {% if request.path == '/admin/export' %}class="active"{% endif %}><i></i> Exportar datos</a>
-          <a href="{{ url_for('admin.consent') }}" {% if request.path == '/admin/consent' %}class="active"{% endif %}><i></i> Consentimiento</a>
-        </div>
-      {% endif %}
-      <div class="auth-nav">
-        {% if current_user.is_authenticated %}
-          <span class="user-info">{{ current_user.username }}</span>
-          <a href="{{ url_for('auth.logout') }}" class="btn-logout">Cerrar sesión</a>
-        {% else %}
-          <a href="{{ url_for('auth.login') }}" class="btn-login">Iniciar sesión</a>
-          <a href="{{ url_for('auth.register') }}" class="btn-register">Registrarse</a>
-        {% endif %}
-      </div>
+
     </aside>
     <main class="main">
       <div id="toast"></div>
@@ -52,8 +55,52 @@
         {% endwith %}
       </div>
       {% block content %}{% endblock %}
+      <footer class="footer">
+        <div class="footer-inner">
+          <div class="footer-col">
+            <div class="footer-brand"><span>PDF</span> Tools</div>
+            <p class="footer-desc">Herramientas PDF gratuitas y en línea. Merge, comprimir, recortar, rotar y más. Sin registro, sin límites.</p>
+          </div>
+          <div class="footer-col">
+            <div class="footer-title">Herramientas</div>
+            <a href="/">PDF Merger</a>
+            <a href="/merge-multiple">Unir PDFs</a>
+            <a href="/compress">Reducir PDFs</a>
+            <a href="/resize">Redimensionar</a>
+          </div>
+          <div class="footer-col">
+            <div class="footer-title">Editar</div>
+            <a href="/crop">Recortar PDF</a>
+            <a href="/rotate">Rotar páginas</a>
+            <a href="/reorder">Reordenar</a>
+            <a href="/remove-pages">Quitar páginas</a>
+          </div>
+          <div class="footer-col">
+            <div class="footer-title">Otros</div>
+            <a href="/find">Buscar faltantes</a>
+            <a href="/convert">TIFF a PDF</a>
+            <a href="https://github.com/GermanUNAP" target="_blank" rel="noopener">GitHub</a>
+          </div>
+        </div>
+        <div class="footer-bottom">
+          <p>&copy; 2026 PDF Tools. Creado por <a href="https://github.com/GermanUNAP" target="_blank" rel="noopener">GermanUNAP</a>. Todos los derechos reservados.</p>
+        </div>
+      </footer>
     </main>
   </div>
   {% block scripts %}{% endblock %}
+  <script>
+    const hamburger = document.getElementById('hamburger');
+    const sidebar = document.querySelector('.sidebar');
+    const overlay = document.getElementById('sidebarOverlay');
+    hamburger.addEventListener('click', () => {
+      sidebar.classList.toggle('open');
+      overlay.classList.toggle('active');
+    });
+    overlay.addEventListener('click', () => {
+      sidebar.classList.remove('open');
+      overlay.classList.remove('active');
+    });
+  </script>
 </body>
 </html>

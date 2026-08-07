@@ -11,7 +11,7 @@ import pikepdf
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import RectangleObject
 
-from app.services import merge_pdfs, parse_pages_to_remove, compress_pdf
+from app.services import merge_pdfs, parse_pages_to_remove, compress_pdf, parse_pages_set
 from app.metrics import log_usage
 
 
@@ -116,6 +116,7 @@ def init_routes(app):
             return jsonify({'error': 'No hay archivos para unir'}), 400
 
         saved = []
+        output = None
         try:
             for f in files:
                 if f.filename == '':
@@ -143,12 +144,18 @@ def init_routes(app):
                       pages_out=total_pages, file_size=os.path.getsize(output),
                       original_filename=','.join(file_names))
 
-            return jsonify({
-                'pages': total_pages,
-                'files': len(order),
-                'size': os.path.getsize(output),
-                'download': '/download-multi'
-            })
+            @after_this_request
+            def cleanup(resp):
+                try:
+                    for p in saved:
+                        os.remove(p)
+                    if output and os.path.exists(output):
+                        os.remove(output)
+                except Exception:
+                    pass
+                return resp
+
+            return send_file(output, as_attachment=True, download_name='pdf_unido.pdf')
         except Exception as e:
             log_usage('merge_multi', success=False, error_message=str(e),
                       original_filename=','.join([f.filename for f in files]) if files else None)
@@ -159,22 +166,6 @@ def init_routes(app):
                     os.remove(p)
                 except Exception:
                     pass
-
-    @app.route('/download-multi')
-    def download_multi():
-        path = os.path.join(current_app.config['UPLOAD_FOLDER'], 'merged_multi_output.pdf')
-        if not os.path.exists(path):
-            return jsonify({'error': 'Archivo no encontrado'}), 404
-
-        @after_this_request
-        def cleanup(resp):
-            try:
-                os.remove(path)
-            except Exception:
-                pass
-            return resp
-
-        return send_file(path, as_attachment=True, download_name='pdf_unido.pdf')
 
     @app.route('/page-count', methods=['POST'])
     def page_count():
@@ -520,3 +511,208 @@ def init_routes(app):
                     os.remove(p)
                 except Exception:
                     pass
+
+    @app.route('/rotate')
+    def rotate_page():
+        return render_template('rotate.html')
+
+    @app.route('/rotate-pdf', methods=['POST'])
+    def rotate_pdf():
+        upload = current_app.config['UPLOAD_FOLDER']
+        if 'pdf' not in request.files:
+            return jsonify({'error': 'Falta el PDF'}), 400
+        pdf_file = request.files['pdf']
+        if pdf_file.filename == '':
+            return jsonify({'error': 'Archivo vacío'}), 400
+
+        target = request.form.get('target', 'all')
+        angle_str = request.form.get('angle', '90')
+        pages_str = request.form.get('pages', '').strip()
+
+        try:
+            angle = int(angle_str)
+        except ValueError:
+            angle = 90
+        if angle not in (90, 180, 270):
+            angle = 90
+
+        tmp_path = os.path.join(upload, secure_filename(pdf_file.filename))
+        pdf_file.save(tmp_path)
+
+        try:
+            reader = PdfReader(tmp_path)
+            total = len(reader.pages)
+
+            to_rotate = set()
+            if target == 'even':
+                to_rotate = {i + 1 for i in range(total) if (i + 1) % 2 == 0}
+            elif target == 'odd':
+                to_rotate = {i + 1 for i in range(total) if (i + 1) % 2 != 0}
+            elif target == 'custom':
+                if not pages_str:
+                    return jsonify({'error': 'Especifica las páginas a rotar'}), 400
+                to_rotate = parse_pages_set(pages_str, total)
+            else:
+                to_rotate = set(range(1, total + 1))
+
+            if not to_rotate:
+                return jsonify({'error': 'Ninguna página válida para rotar (de 1 a ' + str(total) + ')'}), 400
+
+            writer = PdfWriter()
+            rotated_count = 0
+            for i, page in enumerate(reader.pages):
+                if (i + 1) in to_rotate:
+                    page.rotate(angle)
+                    rotated_count += 1
+                writer.add_page(page)
+
+            output = os.path.join(upload, 'rotated_output.pdf')
+            with open(output, 'wb') as f:
+                writer.write(f)
+
+            try:
+                with pikepdf.open(output) as pdf:
+                    pdf.save(output, compress_streams=True)
+            except Exception:
+                pass
+
+            log_usage('rotate_pdf', pages_in=total, pages_out=total,
+                      file_size=os.path.getsize(tmp_path),
+                      file_size_out=os.path.getsize(output),
+                      original_filename=pdf_file.filename)
+
+            @after_this_request
+            def cleanup(resp):
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
+                try:
+                    os.remove(output)
+                except Exception:
+                    pass
+                return resp
+
+            resp = send_file(
+                output,
+                as_attachment=True,
+                download_name='pdf_rotado.pdf',
+                mimetype='application/pdf'
+            )
+            resp.headers['X-Rotated-Count'] = str(rotated_count)
+            resp.headers['X-Rotation-Angle'] = str(angle)
+            return resp
+        except Exception as e:
+            log_usage('rotate_pdf', success=False, error_message=str(e),
+                      original_filename=pdf_file.filename)
+            return jsonify({'error': f'Error al rotar: {str(e)}'}), 500
+
+    @app.route('/resize')
+    def resize_page():
+        return render_template('resize.html')
+
+    @app.route('/resize-pdf', methods=['POST'])
+    def resize_pdf():
+        upload = current_app.config['UPLOAD_FOLDER']
+        if 'pdf' not in request.files:
+            return jsonify({'error': 'Falta el PDF'}), 400
+        pdf_file = request.files['pdf']
+        if pdf_file.filename == '':
+            return jsonify({'error': 'Archivo vacío'}), 400
+
+        target = request.form.get('target', 'a4')
+        custom_w = request.form.get('custom_w', '').strip()
+        custom_h = request.form.get('custom_h', '').strip()
+        orientation = request.form.get('orientation', 'portrait')
+
+        PAGE_SIZES = {
+            'a0': (2384, 3370),
+            'a1': (1684, 2384),
+            'a2': (1191, 1684),
+            'a3': (842, 1191),
+            'a4': (595, 842),
+            'a5': (420, 595),
+            'a6': (298, 420),
+            'letter': (612, 792),
+            'legal': (612, 1008),
+            'tabloid': (792, 1224),
+        }
+
+        if target == 'custom':
+            try:
+                w = float(custom_w)
+                h = float(custom_h)
+                if w <= 0 or h <= 0:
+                    return jsonify({'error': 'Dimensiones inválidas'}), 400
+            except ValueError:
+                return jsonify({'error': 'Dimensiones inválidas'}), 400
+        elif target in PAGE_SIZES:
+            w, h = PAGE_SIZES[target]
+            if orientation == 'landscape':
+                w, h = h, w
+        else:
+            return jsonify({'error': 'Formato no reconocido'}), 400
+
+        tmp_path = os.path.join(upload, secure_filename(pdf_file.filename))
+        pdf_file.save(tmp_path)
+
+        try:
+            reader = PdfReader(tmp_path)
+            writer = PdfWriter()
+            num_pages = len(reader.pages)
+
+            for page in reader.pages:
+                mb = [float(x) for x in page.mediabox]
+                orig_w = mb[2] - mb[0]
+                orig_h = mb[3] - mb[1]
+
+                scale_x = w / orig_w
+                scale_y = h / orig_h
+                scale = min(scale_x, scale_y)
+
+                page.scale(scale, scale)
+                page.mediabox.lower_left = (0, 0)
+                page.mediabox.upper_right = (w, h)
+
+                for attr in ('trimbox', 'artbox', 'bleedbox'):
+                    try:
+                        setattr(page, attr, page.mediabox)
+                    except Exception:
+                        pass
+
+                writer.add_page(page)
+
+            output = os.path.join(upload, 'resized_output.pdf')
+            with open(output, 'wb') as f:
+                writer.write(f)
+
+            try:
+                with pikepdf.open(output) as pdf:
+                    pdf.save(output, compress_streams=True)
+            except Exception:
+                pass
+
+            log_usage('resize_pdf', pages_in=num_pages, pages_out=num_pages,
+                      file_size=os.path.getsize(tmp_path),
+                      file_size_out=os.path.getsize(output),
+                      original_filename=pdf_file.filename)
+
+            @after_this_request
+            def cleanup(resp):
+                for p in [tmp_path, output]:
+                    try:
+                        os.remove(p)
+                    except Exception:
+                        pass
+                return resp
+
+            return send_file(
+                output,
+                as_attachment=True,
+                download_name='pdf_redimensionado.pdf',
+                mimetype='application/pdf'
+            )
+        except Exception as e:
+            log_usage('resize_pdf', success=False, error_message=str(e),
+                      original_filename=pdf_file.filename)
+            return jsonify({'error': f'Error al redimensionar: {str(e)}'}), 500

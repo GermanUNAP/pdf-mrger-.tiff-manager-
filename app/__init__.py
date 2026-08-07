@@ -1,5 +1,7 @@
 import os
 import tempfile
+import sys
+import traceback
 from dotenv import load_dotenv
 from flask import Flask
 
@@ -20,50 +22,18 @@ def create_app():
     if not os.path.exists(upload_folder):
         os.makedirs(upload_folder)
 
-    from app.extensions import db, sess, login_manager, oauth
-    db.init_app(app)
-    app.config['SESSION_SQLALCHEMY'] = db
-    sess.init_app(app)
-    login_manager.init_app(app)
-    oauth.init_app(app)
-
-    if app.config.get('GOOGLE_CLIENT_ID'):
-        oauth.register(
-            name='google',
-            client_id=app.config['GOOGLE_CLIENT_ID'],
-            client_secret=app.config['GOOGLE_CLIENT_SECRET'],
-            server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
-            client_kwargs={'scope': 'openid email profile'},
-        )
-
-    if app.config.get('GITHUB_CLIENT_ID'):
-        oauth.register(
-            name='github',
-            client_id=app.config['GITHUB_CLIENT_ID'],
-            client_secret=app.config['GITHUB_CLIENT_SECRET'],
-            access_token_url='https://github.com/login/oauth/access_token',
-            authorize_url='https://github.com/login/oauth/authorize',
-            api_base_url='https://api.github.com/',
-            client_kwargs={'scope': 'user:email'},
-        )
-
-    with app.app_context():
-        from app.models import User, UsageLog
-        db.create_all()
-
     from app.routes import init_routes
     init_routes(app)
-
-    from app.auth import bp as auth_bp
-    app.register_blueprint(auth_bp)
-
-    from app.admin import bp as admin_bp
-    app.register_blueprint(admin_bp)
-
-    from app.services import init_cleanup
-    init_cleanup(app)
 
     from app.metrics import init_middleware
     init_middleware(app)
 
     return app
+
+
+try:
+    app = create_app()
+except Exception as e:
+    print(f"CREATE_APP FAILED: {e}", file=sys.stderr)
+    traceback.print_exc(file=sys.stderr)
+    raise

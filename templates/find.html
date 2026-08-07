@@ -1,5 +1,6 @@
 {% extends "base.html" %}
-{% block title %}Buscar páginas faltantes{% endblock %}
+{% block title %}Find Missing PDF Pages | Buscar Páginas Faltantes{% endblock %}
+{% block meta_description %}Find which pages are missing from a PDF sequence. Identificar páginas faltantes en una secuencia de PDF.{% endblock %}
 
 {% block content %}
 <div class="container">
@@ -8,6 +9,11 @@
     Búsqueda binaria: te digo qué página revisar, tú me dices qué folio ves.
     Así encuentro todos los faltantes en pocos pasos.
   </p>
+
+  <div class="info-card">
+    <div class="info-card-row"><span class="label">How it works / Cómo funciona</span></div>
+    <p style="font-size:13px;color:#666;line-height:1.6;margin-top:8px">Enter the page range of your PDF (e.g., 1-50) and the list of pages you have. The tool will tell you which pages are missing — useful for incomplete scanned documents or legal files. / Ingresa el rango de páginas de tu PDF (ej: 1-50) y las páginas que tienes. La herramienta te dirá qué páginas faltan — útil para documentos escaneados incompletos o expedientes legales.</p>
+  </div>
 
   <div id="alerts"></div>
 
