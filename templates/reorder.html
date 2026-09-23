@@ -200,8 +200,8 @@ function createCard(origIdx, pos) {
   info.appendChild(pg);
   card.appendChild(info);
 
-  const pos = document.createElement('div');
-  pos.className = 'pos';
+  const posBox = document.createElement('div');
+  posBox.className = 'pos';
 
   const upBtn = document.createElement('button');
   upBtn.className = 'move-btn';
@@ -212,7 +212,7 @@ function createCard(origIdx, pos) {
     const cur = pagesData.findIndex(d => d.index === origIdx);
     if (cur > 0) movePage(cur, cur - 1);
   });
-  pos.appendChild(upBtn);
+  posBox.appendChild(upBtn);
 
   const posInput = document.createElement('input');
   posInput.type = 'number';
@@ -228,7 +228,7 @@ function createCard(origIdx, pos) {
     posInput.value = cur + 1;
   });
   posInput.addEventListener('focus', e => e.target.select());
-  pos.appendChild(posInput);
+  posBox.appendChild(posInput);
 
   const downBtn = document.createElement('button');
   downBtn.className = 'move-btn';
@@ -239,9 +239,9 @@ function createCard(origIdx, pos) {
     const cur = pagesData.findIndex(d => d.index === origIdx);
     if (cur < pagesData.length - 1) movePage(cur, cur + 1);
   });
-  pos.appendChild(downBtn);
+  posBox.appendChild(downBtn);
 
-  card.appendChild(pos);
+  card.appendChild(posBox);
 
   card.addEventListener('dragstart', onDragStart);
   card.addEventListener('dragend', onDragEnd);
