@@ -87,17 +87,13 @@
 
   async function getPageCount(f) {
     try {
-      console.log('[merge-multi] Contando páginas de:', f.name, 'tamaño:', f.size);
       var buf = await f.arrayBuffer();
-      console.log('[merge-multi] Archivo leído, bytes:', buf.byteLength);
       if (buf.byteLength === 0) return '?';
       var doc = await pdfjsLib.getDocument({ data: buf }).promise;
       var n = doc.numPages;
-      console.log('[merge-multi] Páginas de', f.name, ':', n);
       doc.destroy();
       return n;
     } catch (e) {
-      console.error('[merge-multi] Error contando páginas de', f.name, ':', e);
       return '?';
     }
   }

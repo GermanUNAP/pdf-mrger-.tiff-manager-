@@ -130,24 +130,19 @@
     const loadText = document.getElementById('loadText');
     loadPhase.classList.add('active');
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-    console.log('[rotate] Leyendo:', file.name, 'tamaño:', file.size, 'bytes');
     loadText.textContent = 'Leyendo archivo…';
     file.arrayBuffer().then(function(buf) {
-      console.log('[rotate] Archivo leído, bytes:', buf.byteLength);
       if (buf.byteLength === 0) throw new Error('El archivo está vacío (0 bytes)');
       loadText.textContent = 'Parseando PDF…';
       return pdfjsLib.getDocument({ data: buf }).promise;
     }).then(function(doc) {
       totalPages = doc.numPages;
-      console.log('[rotate] PDF OK, páginas:', totalPages);
       document.getElementById('pageCount').textContent = totalPages;
       updateHint();
       checkReady();
       doc.destroy();
       loadPhase.classList.remove('active');
     }).catch(function(err) {
-      console.error('[rotate] ERROR:', err);
-      console.error('[rotate] Stack:', err.stack);
       al('Error al leer PDF: ' + err.message, 'e');
       loadPhase.classList.remove('active');
       editorPhase.classList.add('hide');

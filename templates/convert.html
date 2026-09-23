@@ -233,7 +233,6 @@
       al('PDF generado: ' + allPages.length + ' paginas, ' + fmt(pdfBlob.size) + ' (-' + pct.toFixed(1) + '%)', 's');
     } catch (e) {
       al('Error al convertir: ' + e.message, 'e');
-      console.error(e);
     }
     btnConvert.disabled = false;
     loading.classList.remove('active');
