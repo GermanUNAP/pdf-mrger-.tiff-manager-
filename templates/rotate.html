@@ -25,10 +25,15 @@
       <p>Arrastra un PDF aquí o haz clic para seleccionar</p>
     </div>
     <input type="file" id="fileInput" accept=".pdf" class="hide">
-    <div class="loading" id="loadPhase" style="margin-top:12px">
+  </div>
+
+  <div id="loadingPhase" class="loading hide" style="flex-direction:column;align-items:stretch;gap:8px;margin-top:12px">
+    <div style="display:flex;align-items:center;gap:8px">
       <div class="spinner"></div>
-      <span id="loadText">Leyendo PDF…</span>
+      <span id="loadingText">Leyendo PDF…</span>
     </div>
+    <div class="progress-bar active"><div class="fill" id="loadFill" style="width:0%"></div></div>
+    <div style="font-size:12px;color:#888" id="loadSub"></div>
   </div>
 
   <div id="editorPhase" class="hide">
@@ -120,34 +125,53 @@
   });
   customPages.addEventListener('input', checkReady);
 
-  function loadFile(file) {
+  async function loadFile(file) {
     if (!file.name.toLowerCase().endsWith('.pdf')) { al('Solo PDFs', 'e'); return; }
     currentFile = file;
     uploadPhase.classList.add('hide');
-    editorPhase.classList.remove('hide');
     document.getElementById('fileName').textContent = file.name;
-    const loadPhase = document.getElementById('loadPhase');
-    const loadText = document.getElementById('loadText');
-    loadPhase.classList.add('active');
+    const loadingPhase = document.getElementById('loadingPhase');
+    const loadingText = document.getElementById('loadingText');
+    const loadFill = document.getElementById('loadFill');
+    const loadSub = document.getElementById('loadSub');
+    loadingPhase.classList.remove('hide');
+    loadingPhase.classList.add('active');
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-    loadText.textContent = 'Leyendo archivo…';
-    file.arrayBuffer().then(function(buf) {
+    try {
+      loadingText.textContent = 'Leyendo archivo…';
+      loadSub.textContent = 'Paso 1/3: Leyendo archivo del disco';
+      loadFill.style.width = '10%';
+      const buf = await file.arrayBuffer();
       if (buf.byteLength === 0) throw new Error('El archivo está vacío (0 bytes)');
-      loadText.textContent = 'Parseando PDF…';
-      return pdfjsLib.getDocument({ data: buf }).promise;
-    }).then(function(doc) {
+      loadingText.textContent = 'Parseando PDF…';
+      loadSub.textContent = 'Paso 2/3: Parseando estructura PDF';
+      loadFill.style.width = '30%';
+      const doc = await pdfjsLib.getDocument({ data: buf }).promise;
       totalPages = doc.numPages;
+      loadingText.textContent = 'Analizando páginas…';
+      loadSub.textContent = 'Paso 3/3: Página 0/' + totalPages;
+      loadFill.style.width = '40%';
+      for (let i = 1; i <= totalPages; i++) {
+        loadSub.textContent = 'Paso 3/3: Página ' + i + '/' + totalPages;
+        loadFill.style.width = (40 + (i / totalPages) * 55) + '%';
+        await doc.getPage(i);
+      }
+      loadFill.style.width = '100%';
+      loadSub.textContent = 'Completado';
       document.getElementById('pageCount').textContent = totalPages;
       updateHint();
       checkReady();
       doc.destroy();
-      loadPhase.classList.remove('active');
-    }).catch(function(err) {
+      loadingPhase.classList.add('hide');
+      loadingPhase.classList.remove('active');
+      editorPhase.classList.remove('hide');
+    } catch (err) {
       al('Error al leer PDF: ' + err.message, 'e');
-      loadPhase.classList.remove('active');
+      loadingPhase.classList.add('hide');
+      loadingPhase.classList.remove('active');
       editorPhase.classList.add('hide');
       uploadPhase.classList.remove('hide');
-    });
+    }
   }
 
   angleSelect.addEventListener('change', updateHint);

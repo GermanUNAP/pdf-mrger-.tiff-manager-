@@ -77,6 +77,7 @@ async function loadPDF(file) {
   currentFile = file;
   uploadPhase.classList.add('hide');
   loadingPhase.classList.remove('hide');
+  loadingPhase.classList.add('active');
   const lt = document.getElementById('loadingText');
   const lf = document.getElementById('loadFill');
   const ls = document.getElementById('loadSub');
@@ -102,10 +103,12 @@ async function loadPDF(file) {
     lf.style.width = '100%';
     editorPhase.classList.remove('hide');
     loadingPhase.classList.add('hide');
+    loadingPhase.classList.remove('active');
   } catch (e) {
     al('Error al cargar PDF: ' + e.message, 'e');
     uploadPhase.classList.remove('hide');
     loadingPhase.classList.add('hide');
+    loadingPhase.classList.remove('active');
   }
 }
 

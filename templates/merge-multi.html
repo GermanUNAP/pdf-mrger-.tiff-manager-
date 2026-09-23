@@ -37,6 +37,15 @@
     <button class="btn btn-p" id="btnMerge" onclick="unir()" disabled>Unir PDFs</button>
   </div>
 
+  <div id="loadingPhase" class="loading hide" style="flex-direction:column;align-items:stretch;gap:8px;margin-top:12px">
+    <div style="display:flex;align-items:center;gap:8px">
+      <div class="spinner"></div>
+      <span id="loadingText">Analizando archivos…</span>
+    </div>
+    <div class="progress-bar active"><div class="fill" id="loadFill" style="width:0%"></div></div>
+    <div style="font-size:12px;color:#888" id="loadSub"></div>
+  </div>
+
   <div id="pOut" class="sec hide">
     <div class="st">3. Resultado</div>
     <div class="result-card">
@@ -74,15 +83,38 @@
     fileInput.value = '';
   });
 
-  function addFiles(newFiles) {
+  async function addFiles(newFiles) {
+    const valid = [];
     for (const f of newFiles) {
       if (!f.name.toLowerCase().endsWith('.pdf')) { al('Solo PDFs: ' + f.name, 'e'); continue; }
-      if (!files.find(x => x.name === f.name && x.size === f.size)) {
-        files.push(f);
-        getPageCount(f).then(p => { f._pages = p; renderList(); });
-      }
+      if (!files.find(x => x.name === f.name && x.size === f.size)) valid.push(f);
     }
-    renderList();
+    if (!valid.length) return;
+    const loadingPhase = document.getElementById('loadingPhase');
+    const loadingText = document.getElementById('loadingText');
+    const loadFill = document.getElementById('loadFill');
+    const loadSub = document.getElementById('loadSub');
+    loadingPhase.classList.remove('hide');
+    loadingPhase.classList.add('active');
+    for (let i = 0; i < valid.length; i++) {
+      const f = valid[i];
+      files.push(f);
+      loadingText.textContent = 'Analizando ' + f.name + '…';
+      loadSub.textContent = 'Archivo ' + (i + 1) + '/' + valid.length + ': ' + f.name;
+      loadFill.style.width = ((i / valid.length) * 100) + '%';
+      renderList();
+      f._pages = await getPageCount(f);
+      loadFill.style.width = (((i + 1) / valid.length) * 100) + '%';
+      renderList();
+    }
+    loadingText.textContent = 'Listo';
+    loadSub.textContent = 'Archivos analizados';
+    loadFill.style.width = '100%';
+    setTimeout(() => {
+      loadingPhase.classList.add('hide');
+      loadingPhase.classList.remove('active');
+      loadFill.style.width = '0%';
+    }, 400);
   }
 
   async function getPageCount(f) {

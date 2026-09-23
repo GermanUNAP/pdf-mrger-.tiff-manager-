@@ -45,11 +45,19 @@
         <button type="submit" class="btn btn-primary" id="mergeBtn">Fusionar PDFs</button>
         <div class="loading" id="loading">
           <div class="spinner"></div>
-          <span>Procesando PDFs...</span>
+          <span id="loadingText">Procesando PDFs...</span>
         </div>
       </div>
       <div class="progress-bar" id="progressBar">
         <div class="fill" id="progressFill"></div>
+      </div>
+      <div id="countPhase" class="loading" style="flex-direction:column;align-items:stretch;gap:8px;margin-top:8px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="spinner"></div>
+          <span id="countText">Contando páginas…</span>
+        </div>
+        <div class="progress-bar active"><div class="fill" id="countFill" style="width:0%"></div></div>
+        <div style="font-size:12px;color:#888" id="countSub"></div>
       </div>
     </div>
   </form>
@@ -62,13 +70,45 @@
   let insertionCount = 0;
 
   function countPagesClient(file) {
+    const countPhase = document.getElementById('countPhase');
+    const countText = document.getElementById('countText');
+    const countFill = document.getElementById('countFill');
+    const countSub = document.getElementById('countSub');
+    countPhase.classList.add('active');
+    countText.textContent = 'Leyendo ' + file.name + '…';
+    countSub.textContent = 'Leyendo archivo del disco';
+    countFill.style.width = '20%';
     return file.arrayBuffer().then(function(buf) {
       if (buf.byteLength === 0) throw new Error('Archivo vacío');
+      countText.textContent = 'Parseando ' + file.name + '…';
+      countSub.textContent = 'Parseando estructura PDF';
+      countFill.style.width = '50%';
       return pdfjsLib.getDocument({ data: buf }).promise;
     }).then(function(doc) {
       var n = doc.numPages;
-      doc.destroy();
-      return n;
+      countText.textContent = 'Analizando páginas de ' + file.name + '…';
+      countSub.textContent = 'Página 0/' + n;
+      countFill.style.width = '60%';
+      var chain = Promise.resolve();
+      for (var i = 1; i <= n; i++) {
+        (function(pageNum) {
+          chain = chain.then(function() {
+            countSub.textContent = 'Página ' + pageNum + '/' + n;
+            countFill.style.width = (60 + (pageNum / n) * 35) + '%';
+            return doc.getPage(pageNum);
+          });
+        })(i);
+      }
+      return chain.then(function() {
+        countFill.style.width = '100%';
+        countSub.textContent = 'Completado';
+        doc.destroy();
+        setTimeout(function() {
+          countPhase.classList.remove('active');
+          countFill.style.width = '0%';
+        }, 300);
+        return n;
+      });
     });
   }
 
@@ -150,10 +190,18 @@
     formData.append('insertions', JSON.stringify(insertions));
     const btn = document.getElementById('mergeBtn');
     const loading = document.getElementById('loading');
+    const loadingText = document.getElementById('loadingText');
+    const progressBar = document.getElementById('progressBar');
+    const progressFill = document.getElementById('progressFill');
     btn.disabled = true;
     loading.classList.add('active');
+    progressBar.classList.add('active');
+    progressFill.style.width = '0%';
+    loadingText.textContent = 'Subiendo archivos…';
     try {
       const xhr = await uploadWithProgress('/merge', formData);
+      progressFill.style.width = '100%';
+      loadingText.textContent = 'Generando PDF final…';
       const blob = xhr.response;
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -163,6 +211,8 @@
     } catch (e) { showAlert(e.message || 'Error de conexión', 'error'); }
     btn.disabled = false;
     loading.classList.remove('active');
+    progressBar.classList.remove('active');
+    progressFill.style.width = '0%';
   });
 
   function showAlert(msg, type) {

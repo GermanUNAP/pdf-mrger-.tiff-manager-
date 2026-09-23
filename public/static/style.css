@@ -120,6 +120,7 @@ h1{font-size:24px;margin-bottom:8px;color:#1a1a2e}
 .actions{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
 .loading{display:none;align-items:center;gap:8px;color:#888;font-size:13px}
 .loading.active{display:flex}
+.loading.hide{display:none!important}
 .spinner{width:18px;height:18px;border:2px solid #ddd;border-top-color:#4a6cf7;border-radius:50%;animation:spin .6s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 .progress-bar{display:none;margin-top:12px;height:6px;background:#e5e7eb;border-radius:3px;overflow:hidden}
