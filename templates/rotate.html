@@ -25,6 +25,10 @@
       <p>Arrastra un PDF aquí o haz clic para seleccionar</p>
     </div>
     <input type="file" id="fileInput" accept=".pdf" class="hide">
+    <div class="loading" id="loadPhase" style="margin-top:12px">
+      <div class="spinner"></div>
+      <span id="loadText">Leyendo PDF…</span>
+    </div>
   </div>
 
   <div id="editorPhase" class="hide">
@@ -122,16 +126,33 @@
     uploadPhase.classList.add('hide');
     editorPhase.classList.remove('hide');
     document.getElementById('fileName').textContent = file.name;
+    const loadPhase = document.getElementById('loadPhase');
+    const loadText = document.getElementById('loadText');
+    loadPhase.classList.add('active');
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    console.log('[rotate] Leyendo:', file.name, 'tamaño:', file.size, 'bytes');
+    loadText.textContent = 'Leyendo archivo…';
     file.arrayBuffer().then(function(buf) {
+      console.log('[rotate] Archivo leído, bytes:', buf.byteLength);
+      if (buf.byteLength === 0) throw new Error('El archivo está vacío (0 bytes)');
+      loadText.textContent = 'Parseando PDF…';
       return pdfjsLib.getDocument({ data: buf }).promise;
     }).then(function(doc) {
       totalPages = doc.numPages;
+      console.log('[rotate] PDF OK, páginas:', totalPages);
       document.getElementById('pageCount').textContent = totalPages;
       updateHint();
       checkReady();
       doc.destroy();
-    }).catch(function() { al('Error al leer PDF', 'e'); });
+      loadPhase.classList.remove('active');
+    }).catch(function(err) {
+      console.error('[rotate] ERROR:', err);
+      console.error('[rotate] Stack:', err.stack);
+      al('Error al leer PDF: ' + err.message, 'e');
+      loadPhase.classList.remove('active');
+      editorPhase.classList.add('hide');
+      uploadPhase.classList.remove('hide');
+    });
   }
 
   angleSelect.addEventListener('change', updateHint);

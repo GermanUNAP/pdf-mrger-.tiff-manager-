@@ -61,7 +61,9 @@
 
   <div id="loadingPhase" class="loading hide">
     <div class="spinner"></div>
-    <div>Cargando PDF…</div>
+    <div id="loadingText">Cargando PDF…</div>
+    <div class="progress-bar active" style="margin-top:8px"><div class="fill" id="loadFill" style="width:0%"></div></div>
+    <div style="font-size:12px;color:#888;margin-top:4px" id="loadSub"></div>
   </div>
 </div>
 {% endblock %}
@@ -96,16 +98,43 @@ async function loadPDF(file) {
   currentFile = file;
   uploadPhase.classList.add('hide');
   loadingPhase.classList.remove('hide');
+  const lt = document.getElementById('loadingText');
+  const lf = document.getElementById('loadFill');
+  const ls = document.getElementById('loadSub');
   try {
+    console.log('[reorder] Iniciando carga de:', file.name, 'tamaño:', file.size, 'bytes');
+    lt.textContent = 'Leyendo archivo…';
+    ls.textContent = 'Paso 1/4: Leyendo archivo del disco';
+    lf.style.width = '10%';
     const buf = await file.arrayBuffer();
+    console.log('[reorder] Archivo leído, bytes:', buf.byteLength);
+    if (buf.byteLength === 0) throw new Error('El archivo está vacío (0 bytes)');
+    lt.textContent = 'Parseando PDF…';
+    ls.textContent = 'Paso 2/4: Parseando estructura PDF';
+    lf.style.width = '25%';
     pdfDoc = await pdfjsLib.getDocument({ data: buf }).promise;
     const n = pdfDoc.numPages;
+    console.log('[reorder] PDF parseado OK, páginas:', n);
+    if (n === 0) throw new Error('El PDF no tiene páginas');
     pagesData = Array.from({ length: n }, (_, i) => ({ index: i, label: 'Pág ' + (i + 1) }));
     pageInfo.textContent = n + ' página' + (n !== 1 ? 's' : '');
+    lt.textContent = 'Renderizando miniaturas…';
+    ls.textContent = 'Paso 3/4: Renderizando ' + n + ' página(s)';
+    lf.style.width = '30%';
     await renderPages();
+    console.log('[reorder] Todas las miniaturas renderizadas OK');
+    lt.textContent = 'Listo';
+    ls.textContent = 'Paso 4/4: Completado';
+    lf.style.width = '100%';
     editorPhase.classList.remove('hide');
     loadingPhase.classList.add('hide');
-  } catch (e) { al('Error al cargar PDF: ' + e.message, 'e'); uploadPhase.classList.remove('hide'); loadingPhase.classList.add('hide'); }
+  } catch (e) {
+    console.error('[reorder] ERROR en carga:', e);
+    console.error('[reorder] Stack:', e.stack);
+    al('Error al cargar PDF: ' + e.message, 'e');
+    uploadPhase.classList.remove('hide');
+    loadingPhase.classList.add('hide');
+  }
 }
 
 function al(m, t) {
@@ -120,7 +149,16 @@ function al(m, t) {
 
 async function renderPages() {
   pageGrid.innerHTML = '';
+  const n = pagesData.length;
+  const lf = document.getElementById('loadFill');
+  const ls = document.getElementById('loadSub');
+  const lt = document.getElementById('loadingText');
   for (let i = 0; i < pagesData.length; i++) {
+    lt.textContent = 'Renderizando miniatura ' + (i + 1) + ' de ' + n + '…';
+    ls.textContent = 'Paso 3/4: Miniatura ' + (i + 1) + '/' + n;
+    lf.style.width = (30 + ((i + 1) / n) * 65) + '%';
+    console.log('[reorder] Renderizando miniatura', i + 1, '/', n);
+    try {
     const d = pagesData[i];
     const card = document.createElement('div');
     card.className = 'page-card';
@@ -199,6 +237,10 @@ async function renderPages() {
     card.addEventListener('dragover', onDragOver);
     card.addEventListener('dragleave', onDragLeave);
     card.addEventListener('drop', onDrop);
+    } catch (pageErr) {
+      console.error('[reorder] Error renderizando miniatura', i + 1, ':', pageErr);
+      throw new Error('Error en miniatura ' + (i + 1) + ': ' + pageErr.message);
+    }
   }
 }
 

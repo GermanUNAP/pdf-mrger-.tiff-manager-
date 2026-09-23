@@ -40,7 +40,9 @@
 
   <div id="loadingPhase" class="loading hide">
     <div class="spinner"></div>
-    <div>Cargando PDF…</div>
+    <div id="loadingText">Cargando PDF…</div>
+    <div class="progress-bar active" style="margin-top:8px"><div class="fill" id="loadFill" style="width:0%"></div></div>
+    <div style="font-size:12px;color:#888;margin-top:4px" id="loadSub"></div>
   </div>
 </div>
 {% endblock %}
@@ -75,15 +77,42 @@ async function loadPDF(file) {
   currentFile = file;
   uploadPhase.classList.add('hide');
   loadingPhase.classList.remove('hide');
+  const lt = document.getElementById('loadingText');
+  const lf = document.getElementById('loadFill');
+  const ls = document.getElementById('loadSub');
   try {
+    console.log('[crop] Iniciando carga de:', file.name, 'tamaño:', file.size, 'bytes');
+    lt.textContent = 'Leyendo archivo…';
+    ls.textContent = 'Paso 1/4: Leyendo archivo del disco';
+    lf.style.width = '10%';
     const buf = await file.arrayBuffer();
+    console.log('[crop] Archivo leído, bytes:', buf.byteLength);
+    if (buf.byteLength === 0) throw new Error('El archivo está vacío (0 bytes)');
+    lt.textContent = 'Parseando PDF…';
+    ls.textContent = 'Paso 2/4: Parseando estructura PDF';
+    lf.style.width = '25%';
     pdfDoc = await pdfjsLib.getDocument({ data: buf }).promise;
     const n = pdfDoc.numPages;
+    console.log('[crop] PDF parseado OK, páginas:', n);
+    if (n === 0) throw new Error('El PDF no tiene páginas');
     pageInfo.textContent = n + ' página' + (n !== 1 ? 's' : '');
+    lt.textContent = 'Renderizando páginas…';
+    ls.textContent = 'Paso 3/4: Renderizando ' + n + ' página(s)';
+    lf.style.width = '30%';
     await renderAllPages();
+    console.log('[crop] Todas las páginas renderizadas OK');
+    lt.textContent = 'Listo';
+    ls.textContent = 'Paso 4/4: Completado';
+    lf.style.width = '100%';
     editorPhase.classList.remove('hide');
     loadingPhase.classList.add('hide');
-  } catch (e) { al('Error al cargar PDF: ' + e.message, 'e'); uploadPhase.classList.remove('hide'); loadingPhase.classList.add('hide'); }
+  } catch (e) {
+    console.error('[crop] ERROR en carga:', e);
+    console.error('[crop] Stack:', e.stack);
+    al('Error al cargar PDF: ' + e.message, 'e');
+    uploadPhase.classList.remove('hide');
+    loadingPhase.classList.add('hide');
+  }
 }
 
 function al(m, t) {
@@ -100,7 +129,15 @@ async function renderAllPages() {
   pageGrid.innerHTML = '';
   const n = pdfDoc.numPages;
   crops = Array.from({ length: n }, () => ({ x: 0, y: 0, w: 1, h: 1 }));
+  const lf = document.getElementById('loadFill');
+  const ls = document.getElementById('loadSub');
+  const lt = document.getElementById('loadingText');
   for (let i = 1; i <= n; i++) {
+    lt.textContent = 'Renderizando página ' + i + ' de ' + n + '…';
+    ls.textContent = 'Paso 3/4: Página ' + i + '/' + n;
+    lf.style.width = (30 + (i / n) * 65) + '%';
+    console.log('[crop] Renderizando página', i, '/', n);
+    try {
     const wrap = document.createElement('div');
     wrap.className = 'pg-wrap';
     const numEl = document.createElement('div');
@@ -131,6 +168,10 @@ async function renderAllPages() {
     await page.render({ canvasContext: ctx, viewport: sVp }).promise;
     initCropRect(i, inner, scale);
     updateShade(i);
+    } catch (pageErr) {
+      console.error('[crop] Error renderizando página', i, ':', pageErr);
+      throw new Error('Error en página ' + i + ': ' + pageErr.message);
+    }
   }
 }
 

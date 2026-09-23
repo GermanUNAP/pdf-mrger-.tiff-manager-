@@ -62,12 +62,19 @@
   let insertionCount = 0;
 
   function countPagesClient(file) {
+    console.log('[index] Contando páginas de:', file.name, 'tamaño:', file.size);
     return file.arrayBuffer().then(function(buf) {
+      console.log('[index] Archivo leído, bytes:', buf.byteLength);
+      if (buf.byteLength === 0) throw new Error('Archivo vacío');
       return pdfjsLib.getDocument({ data: buf }).promise;
     }).then(function(doc) {
       var n = doc.numPages;
+      console.log('[index] Páginas:', n);
       doc.destroy();
       return n;
+    }).catch(function(err) {
+      console.error('[index] Error contando páginas:', err);
+      throw err;
     });
   }
 
