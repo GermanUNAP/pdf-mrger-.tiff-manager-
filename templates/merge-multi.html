@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Merge Multiple PDFs - Combine PDF Files | Unir PDFs{% endblock %}
 {% block meta_description %}Combine multiple PDF files into one document. Drag and drop to reorder. Unir múltiples archivos PDF en uno solo.{% endblock %}
+{% block head_scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+{% endblock %}
 
 {% block content %}
 <div class="container">
@@ -51,6 +54,7 @@
 
 {% block scripts %}
 <script>
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
   const dropZone = document.getElementById('dropZone');
   const fileInput = document.getElementById('fileInput');
   const sortList = document.getElementById('sortList');
@@ -82,10 +86,13 @@
   }
 
   async function getPageCount(f) {
-    const fd = new FormData();
-    fd.append('pdf', f);
-    try { const r = await fetch('/page-count', { method: 'POST', body: fd }); const j = await r.json(); return j.pages || 1; }
-    catch (e) { return '?'; }
+    try {
+      var buf = await f.arrayBuffer();
+      var doc = await pdfjsLib.getDocument({ data: buf }).promise;
+      var n = doc.numPages;
+      doc.destroy();
+      return n;
+    } catch (e) { return '?'; }
   }
 
   function renderList() {
@@ -146,14 +153,8 @@
     for (const f of files) fd.append('files[]', f);
     fd.append('order', JSON.stringify(files.map((_, i) => i)));
     try {
-      const r = await fetch('/merge-multi', { method: 'POST', body: fd });
-      if (!r.ok) {
-        const err = await r.json();
-        al(err.error || 'Error al unir', 'e');
-        btnMerge.disabled = false; btnMerge.textContent = 'Unir PDFs';
-        return;
-      }
-      const blob = await r.blob();
+      const xhr = await uploadWithProgress('/merge-multi', fd);
+      const blob = xhr.response;
       const url = URL.createObjectURL(blob);
       const dlBtn = document.getElementById('btnDwl');
       dlBtn.href = url;
@@ -162,7 +163,7 @@
       document.getElementById('pIn').classList.add('hide');
       document.getElementById('pOut').classList.remove('hide');
       al('PDF unido listo para descargar', 's');
-    } catch (e) { al('Error de conexión', 'e'); }
+    } catch (e) { al(e.message || 'Error de conexión', 'e'); }
     btnMerge.disabled = false; btnMerge.textContent = 'Unir PDFs';
   }
 

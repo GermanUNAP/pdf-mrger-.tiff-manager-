@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Remove PDF Pages | Eliminar Páginas PDF{% endblock %}
 {% block meta_description %}Remove specific pages from a PDF document. Eliminar páginas específicas de un documento PDF.{% endblock %}
+{% block head_scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+{% endblock %}
 
 {% block content %}
 <div class="container">
@@ -81,18 +84,17 @@
     currentFile = file;
     uploadPhase.classList.add('hide');
     editorPhase.classList.remove('hide');
-    const fd = new FormData();
-    fd.append('pdf', file);
-    fetch('/page-count', { method: 'POST', body: fd })
-      .then(r => r.json())
-      .then(j => {
-        totalPages = j.pages;
-        pageCount.textContent = j.pages;
-        fileName.textContent = file.name;
-        pagesInput.placeholder = 'Ej: 1,2,3  |  rangos: 1-' + j.pages;
-        checkInput();
-      })
-      .catch(() => { al('Error al leer PDF', 'e'); });
+    fileName.textContent = file.name;
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    file.arrayBuffer().then(function(buf) {
+      return pdfjsLib.getDocument({ data: buf }).promise;
+    }).then(function(doc) {
+      totalPages = doc.numPages;
+      pageCount.textContent = totalPages;
+      pagesInput.placeholder = 'Ej: 1,2,3  |  rangos: 1-' + totalPages;
+      checkInput();
+      doc.destroy();
+    }).catch(function() { al('Error al leer PDF', 'e'); });
   }
 
   pagesInput.addEventListener('input', checkInput);
@@ -127,9 +129,8 @@
     fd.append('pdf', currentFile);
     fd.append('pages', input);
     try {
-      const r = await fetch('/remove-pages-pdf', { method: 'POST', body: fd });
-      if (!r.ok) { const j = await r.json(); al(j.error || 'Error', 'e'); btnRemove.disabled = false; btnRemove.textContent = 'Quitar páginas'; return; }
-      const blob = await r.blob();
+      const xhr = await uploadWithProgress('/remove-pages-pdf', fd);
+      const blob = xhr.response;
       downloadBlobUrl = URL.createObjectURL(blob);
       editorPhase.classList.add('hide');
       resultPhase.classList.remove('hide');
@@ -144,7 +145,7 @@
       removedPages.textContent = count;
       resultPages.textContent = (totalPages - count) + ' páginas restantes';
       al('PDF generado sin ' + count + ' página' + (count !== 1 ? 's' : ''), 's');
-    } catch (e) { al('Error de conexión', 'e'); }
+    } catch (e) { al(e.message || 'Error de conexión', 'e'); }
     btnRemove.disabled = false; btnRemove.textContent = 'Quitar páginas';
   });
 

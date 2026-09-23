@@ -141,19 +141,11 @@
     if (dpi !== '0') fd.append('dpi', dpi);
     fd.append('remove_meta', document.getElementById('removeMeta').checked ? '1' : '0');
     try {
-      const r = await fetch('/compress-pdfs', { method: 'POST', body: fd });
-      if (!r.ok) {
-        const j = await r.json().catch(() => ({}));
-        al(j.error || 'Error al comprimir', 'e');
-        btnCompress.disabled = false;
-        document.getElementById('loading').classList.remove('active');
-        document.getElementById('progressBar').classList.remove('active');
-        return;
-      }
-      const origSize = parseInt(r.headers.get('X-Original-Size')) || 0;
-      const compSize = parseInt(r.headers.get('X-Compressed-Size')) || 0;
-      const files = parseInt(r.headers.get('X-File-Count')) || 0;
-      const pages = parseInt(r.headers.get('X-Page-Count')) || 0;
+      const xhr = await uploadWithProgress('/compress-pdfs', fd);
+      const origSize = parseInt(xhr.getResponseHeader('X-Original-Size')) || 0;
+      const compSize = parseInt(xhr.getResponseHeader('X-Compressed-Size')) || 0;
+      const files = parseInt(xhr.getResponseHeader('X-File-Count')) || 0;
+      const pages = parseInt(xhr.getResponseHeader('X-Page-Count')) || 0;
       document.getElementById('pResult').classList.remove('hide');
       document.getElementById('origSize').textContent = fmt(origSize);
       document.getElementById('compSize').textContent = fmt(compSize);
@@ -164,7 +156,7 @@
       document.getElementById('szFill').style.width = pct + '%';
       document.getElementById('szFill').className = pct < 30 ? 'fill partial' : 'fill';
       if (lastBlobUrl) { URL.revokeObjectURL(lastBlobUrl); }
-      const blob = await r.blob();
+      const blob = xhr.response;
       lastBlobUrl = URL.createObjectURL(blob);
       const dlBtn = document.getElementById('btnDwl');
       dlBtn.href = lastBlobUrl;
@@ -177,7 +169,7 @@
       a.click();
       document.body.removeChild(a);
       al('PDFs reducidos: ' + files + ' archivos, ' + fmt(compSize) + ' (-' + pct.toFixed(1) + '%)', 's');
-    } catch (e) { al('Error de conexión', 'e'); }
+    } catch (e) { al(e.message || 'Error de conexión', 'e'); }
     btnCompress.disabled = false;
     document.getElementById('loading').classList.remove('active');
     document.getElementById('progressBar').classList.remove('active');

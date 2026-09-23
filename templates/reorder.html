@@ -231,9 +231,8 @@ btnDownload.addEventListener('click', async () => {
   fd.append('pdf', currentFile);
   fd.append('order', JSON.stringify(order));
   try {
-    const r = await fetch('/reorder-pdf', { method: 'POST', body: fd });
-    if (!r.ok) { const j = await r.json(); al(j.error || 'Error al reordenar', 'e'); btnDownload.disabled = false; btnDownload.textContent = 'Reordenar y Descargar'; return; }
-    const blob = await r.blob();
+    const xhr = await uploadWithProgress('/reorder-pdf', fd);
+    const blob = xhr.response;
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = 'pdf_reordenado.pdf';
@@ -241,7 +240,7 @@ btnDownload.addEventListener('click', async () => {
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 10000);
     al('PDF reordenado descargado', 's');
-  } catch (e) { al('Error de conexión', 'e'); }
+  } catch (e) { al(e.message || 'Error de conexión', 'e'); }
   btnDownload.disabled = false; btnDownload.textContent = 'Reordenar y Descargar';
 });
 </script>

@@ -26,6 +26,14 @@
     <span></span><span></span><span></span>
   </button>
   <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <div id="uploadOverlay" class="upload-overlay hide">
+    <div class="upload-box">
+      <div class="upload-label" id="uploadLabel">Subiendo archivo…</div>
+      <div class="upload-progress"><div class="upload-fill" id="uploadFill"></div></div>
+      <div class="upload-pct" id="uploadPct">0%</div>
+      <div class="upload-sub" id="uploadSub"></div>
+    </div>
+  </div>
   <div class="wrapper">
     <aside class="sidebar">
       <div class="logo"><span>PDF</span> Tools</div>
@@ -101,6 +109,66 @@
       sidebar.classList.remove('open');
       overlay.classList.remove('active');
     });
+
+    function showUploadOverlay(label) {
+      document.getElementById('uploadOverlay').classList.remove('hide');
+      document.getElementById('uploadLabel').textContent = label || 'Subiendo archivo…';
+      document.getElementById('uploadFill').style.width = '0%';
+      document.getElementById('uploadPct').textContent = '0%';
+      document.getElementById('uploadSub').textContent = '';
+    }
+    function updateUploadOverlay(pct, sub) {
+      document.getElementById('uploadFill').style.width = pct + '%';
+      document.getElementById('uploadPct').textContent = Math.round(pct) + '%';
+      if (sub !== undefined) document.getElementById('uploadSub').textContent = sub;
+    }
+    function hideUploadOverlay() {
+      document.getElementById('uploadOverlay').classList.add('hide');
+    }
+    function uploadWithProgress(url, formData) {
+      return new Promise(function(resolve, reject) {
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', url);
+        xhr.responseType = 'blob';
+        xhr.upload.onprogress = function(e) {
+          if (e.lengthComputable) {
+            var pct = (e.loaded / e.total) * 100;
+            updateUploadOverlay(pct, pct >= 100 ? 'Procesando…' : '');
+          }
+        };
+        xhr.onload = function() {
+          hideUploadOverlay();
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve(xhr);
+          } else {
+            var msg = 'Error del servidor (' + xhr.status + ')';
+            var done = function(text) {
+              try {
+                var j = JSON.parse(text);
+                if (j.error) msg = j.error;
+              } catch(e) {}
+              if (xhr.status === 413) msg = 'El archivo excede el límite permitido.';
+              if (xhr.status === 504 || xhr.status === 502) msg = 'El procesamiento tardó demasiado. Intenta con un archivo más pequeño.';
+              reject(new Error(msg));
+            };
+            if (xhr.response && xhr.response.text) {
+              xhr.response.text().then(done).catch(function() { reject(new Error(msg)); });
+            } else {
+              done(xhr.responseText || '');
+            }
+          }
+        };
+        xhr.onerror = function() {
+          hideUploadOverlay();
+          reject(new Error('Error de conexión. Verifica tu internet.'));
+        };
+        xhr.onabort = function() {
+          hideUploadOverlay();
+          reject(new Error('Subida cancelada.'));
+        };
+        xhr.send(formData);
+      });
+    }
   </script>
 </body>
 </html>

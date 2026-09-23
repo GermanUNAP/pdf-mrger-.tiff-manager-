@@ -141,20 +141,15 @@
     form.append('custom_h', document.getElementById('customH').value);
 
     try {
-      const resp = await fetch('/resize-pdf', { method: 'POST', body: form });
-      if (!resp.ok) {
-        const err = await resp.json();
-        al(err.error || 'Error al procesar', 'e');
-        return;
-      }
-      const blob = await resp.blob();
+      const xhr = await uploadWithProgress('/resize-pdf', form);
+      const blob = xhr.response;
       const url = URL.createObjectURL(blob);
       if (lastBlobUrl) URL.revokeObjectURL(lastBlobUrl);
       lastBlobUrl = url;
 
       document.getElementById('origSize').textContent = fmt(selectedFile.size);
       document.getElementById('newSize').textContent = fmt(blob.size);
-      document.getElementById('pageCount').textContent = resp.headers.get('X-Page-Count') || '?';
+      document.getElementById('pageCount').textContent = xhr.getResponseHeader('X-Page-Count') || '?';
 
       const dlBtn = document.getElementById('btnDwl');
       dlBtn.href = url;
@@ -164,7 +159,7 @@
       document.getElementById('pResult').classList.remove('hide');
       al('PDF redimensionado: ' + fmt(blob.size), 's');
     } catch (e) {
-      al('Error: ' + e.message, 'e');
+      al(e.message || 'Error al procesar', 'e');
     }
     btnResize.disabled = false;
     loading.classList.remove('active');

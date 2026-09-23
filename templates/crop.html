@@ -303,9 +303,8 @@ btnDownload.addEventListener('click', async () => {
   fd.append('pdf', currentFile);
   fd.append('crops', JSON.stringify(crops));
   try {
-    const r = await fetch('/crop-pdf', { method: 'POST', body: fd });
-    if (!r.ok) { const j = await r.json(); al(j.error || 'Error al recortar', 'e'); btnDownload.disabled = false; btnDownload.textContent = 'Recortar y Descargar'; return; }
-    const blob = await r.blob();
+    const xhr = await uploadWithProgress('/crop-pdf', fd);
+    const blob = xhr.response;
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = 'pdf_recortado.pdf';
@@ -313,7 +312,7 @@ btnDownload.addEventListener('click', async () => {
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 10000);
     al('PDF recortado descargado', 's');
-  } catch (e) { al('Error de conexión', 'e'); }
+  } catch (e) { al(e.message || 'Error de conexión', 'e'); }
   btnDownload.disabled = false; btnDownload.textContent = 'Recortar y Descargar';
 });
 </script>

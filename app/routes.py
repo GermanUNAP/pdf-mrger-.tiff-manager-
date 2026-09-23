@@ -706,12 +706,14 @@ def init_routes(app):
                         pass
                 return resp
 
-            return send_file(
+            resp = send_file(
                 output,
                 as_attachment=True,
                 download_name='pdf_redimensionado.pdf',
                 mimetype='application/pdf'
             )
+            resp.headers['X-Page-Count'] = str(num_pages)
+            return resp
         except Exception as e:
             log_usage('resize_pdf', success=False, error_message=str(e),
                       original_filename=pdf_file.filename)

@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Rotate PDF Pages | Rotar Páginas PDF{% endblock %}
 {% block meta_description %}Rotate PDF pages 90, 180, or 270 degrees. Rotar páginas PDF 90, 180 o 270 grados.{% endblock %}
+{% block head_scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+{% endblock %}
 
 {% block content %}
 <div class="container">
@@ -118,18 +121,17 @@
     currentFile = file;
     uploadPhase.classList.add('hide');
     editorPhase.classList.remove('hide');
-    const fd = new FormData();
-    fd.append('pdf', file);
-    fetch('/page-count', { method: 'POST', body: fd })
-      .then(r => r.json())
-      .then(j => {
-        totalPages = j.pages;
-        document.getElementById('pageCount').textContent = j.pages;
-        document.getElementById('fileName').textContent = file.name;
-        updateHint();
-        checkReady();
-      })
-      .catch(() => { al('Error al leer PDF', 'e'); });
+    document.getElementById('fileName').textContent = file.name;
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    file.arrayBuffer().then(function(buf) {
+      return pdfjsLib.getDocument({ data: buf }).promise;
+    }).then(function(doc) {
+      totalPages = doc.numPages;
+      document.getElementById('pageCount').textContent = totalPages;
+      updateHint();
+      checkReady();
+      doc.destroy();
+    }).catch(function() { al('Error al leer PDF', 'e'); });
   }
 
   angleSelect.addEventListener('change', updateHint);
@@ -199,24 +201,18 @@
       fd.append('pages', customPages.value.trim());
     }
     try {
-      const r = await fetch('/rotate-pdf', { method: 'POST', body: fd });
-      if (!r.ok) {
-        const j = await r.json();
-        al(j.error || 'Error al rotar', 'e');
-        btnRotate.disabled = false; btnRotate.textContent = 'Rotar páginas';
-        return;
-      }
-      const blob = await r.blob();
+      const xhr = await uploadWithProgress('/rotate-pdf', fd);
+      const blob = xhr.response;
       downloadBlobUrl = URL.createObjectURL(blob);
-      const rotatedStr = r.headers.get('X-Rotated-Count') || '0';
-      const angleStr = r.headers.get('X-Rotation-Angle') || '';
+      const rotatedStr = xhr.getResponseHeader('X-Rotated-Count') || '0';
+      const angleStr = xhr.getResponseHeader('X-Rotation-Angle') || '';
       editorPhase.classList.add('hide');
       resultPhase.classList.remove('hide');
       document.getElementById('rotatedCount').textContent = rotatedStr;
       document.getElementById('resultDetail').textContent = rotatedStr + ' páginas rotadas ' + angleStr + '°';
       al('PDF rotado correctamente', 's');
     } catch (e) {
-      al('Error de conexión', 'e');
+      al(e.message || 'Error de conexión', 'e');
     }
     btnRotate.disabled = false; btnRotate.textContent = 'Rotar páginas';
   }

@@ -46,6 +46,14 @@ h1{font-size:24px;margin-bottom:8px;color:#1a1a2e}
 
 .hide{display:none!important}
 
+.upload-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:10000;display:flex;align-items:center;justify-content:center}
+.upload-box{background:#fff;border-radius:16px;padding:32px 40px;min-width:320px;max-width:90vw;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+.upload-label{font-size:15px;font-weight:600;color:#1a1a2e;margin-bottom:16px}
+.upload-progress{height:10px;background:#e5e7eb;border-radius:5px;overflow:hidden;margin-bottom:12px}
+.upload-fill{height:100%;width:0%;background:linear-gradient(90deg,#4a6cf7,#22c55e);border-radius:5px;transition:width .3s ease}
+.upload-pct{font-size:32px;font-weight:800;color:#4a6cf7;margin-bottom:4px}
+.upload-sub{font-size:13px;color:#888;min-height:18px}
+
 #toast{position:fixed;top:20px;right:20px;z-index:9999;display:flex;flex-direction:column;gap:8px;pointer-events:none}
 .toast{padding:12px 20px;border-radius:10px;font-size:13px;font-weight:500;box-shadow:0 8px 24px rgba(0,0,0,.12);transform:translateX(120%);opacity:0;animation:slideIn .35s ease forwards;pointer-events:auto;max-width:380px;line-height:1.4}
 .toast.out{animation:slideOut .25s ease forwards}
