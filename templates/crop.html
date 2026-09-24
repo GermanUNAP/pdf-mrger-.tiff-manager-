@@ -339,7 +339,7 @@ btnDownload.addEventListener('click', async () => {
   fd.append('pdf', currentFile);
   fd.append('crops', JSON.stringify(crops));
   try {
-    const xhr = await uploadWithProgress('/crop-pdf', fd);
+    const xhr = await uploadWithProgress('/crop-pdf', fd, 'Recortando PDF…');
     const blob = xhr.response;
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

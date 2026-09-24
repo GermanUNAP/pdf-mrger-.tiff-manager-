@@ -103,6 +103,7 @@ def init_routes(app):
 
     @app.route('/merge-multi', methods=['POST'])
     def merge_multi():
+        import uuid
         upload = current_app.config['UPLOAD_FOLDER']
         if 'files[]' not in request.files:
             return jsonify({'error': 'No se enviaron archivos'}), 400
@@ -118,12 +119,15 @@ def init_routes(app):
         saved = []
         output = None
         try:
-            for f in files:
+            for i, f in enumerate(files):
                 if f.filename == '':
                     continue
-                path = os.path.join(upload, secure_filename(f.filename))
+                path = os.path.join(upload, f'{uuid.uuid4().hex}_{secure_filename(f.filename)}')
                 f.save(path)
                 saved.append(path)
+
+            if not saved:
+                return jsonify({'error': 'No hay archivos válidos para unir'}), 400
 
             writer = PdfWriter()
             total_pages = 0
@@ -135,37 +139,42 @@ def init_routes(app):
                     writer.add_page(page)
                     total_pages += 1
 
-            output = os.path.join(upload, 'merged_multi_output.pdf')
+            if total_pages == 0:
+                return jsonify({'error': 'No se pudieron extraer páginas de los PDFs'}), 400
+
+            output = os.path.join(upload, f'merged_{uuid.uuid4().hex}.pdf')
             with open(output, 'wb') as f:
                 writer.write(f)
 
             file_names = [os.path.basename(p) for p in saved]
-            log_usage('merge_multi', pages_in=sum(len(PdfReader(p).pages) for p in saved),
-                      pages_out=total_pages, file_size=os.path.getsize(output),
+            log_usage('merge_multi', pages_out=total_pages,
+                      file_size=os.path.getsize(output),
                       original_filename=','.join(file_names))
 
             @after_this_request
             def cleanup(resp):
                 try:
                     for p in saved:
-                        os.remove(p)
+                        if os.path.exists(p):
+                            os.remove(p)
                     if output and os.path.exists(output):
                         os.remove(output)
                 except Exception:
                     pass
                 return resp
 
-            return send_file(output, as_attachment=True, download_name='pdf_unido.pdf')
+            return send_file(output, as_attachment=True, download_name='pdf_unido.pdf',
+                             mimetype='application/pdf')
         except Exception as e:
             log_usage('merge_multi', success=False, error_message=str(e),
-                      original_filename=','.join([f.filename for f in files]) if files else None)
-            return jsonify({'error': f'Error: {str(e)}'}), 500
-        finally:
+                      original_filename=','.join([f.filename for f in files if f]) if files else None)
             for p in saved:
                 try:
-                    os.remove(p)
+                    if os.path.exists(p):
+                        os.remove(p)
                 except Exception:
                     pass
+            return jsonify({'error': f'Error al unir PDFs: {str(e)}'}), 500
 
     @app.route('/page-count', methods=['POST'])
     def page_count():

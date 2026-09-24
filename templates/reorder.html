@@ -307,7 +307,7 @@ btnDownload.addEventListener('click', async () => {
   fd.append('pdf', currentFile);
   fd.append('order', JSON.stringify(order));
   try {
-    const xhr = await uploadWithProgress('/reorder-pdf', fd);
+    const xhr = await uploadWithProgress('/reorder-pdf', fd, 'Reordenando páginas…');
     const blob = xhr.response;
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

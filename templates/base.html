@@ -125,15 +125,17 @@
     function hideUploadOverlay() {
       document.getElementById('uploadOverlay').classList.add('hide');
     }
-    function uploadWithProgress(url, formData) {
+    function uploadWithProgress(url, formData, label) {
       return new Promise(function(resolve, reject) {
         var xhr = new XMLHttpRequest();
         xhr.open('POST', url);
         xhr.responseType = 'blob';
+        xhr.timeout = 120000;
+        showUploadOverlay(label || 'Subiendo archivo…');
         xhr.upload.onprogress = function(e) {
           if (e.lengthComputable) {
             var pct = (e.loaded / e.total) * 100;
-            updateUploadOverlay(pct, pct >= 100 ? 'Procesando…' : '');
+            updateUploadOverlay(pct, pct >= 100 ? 'Procesando en el servidor…' : '');
           }
         };
         xhr.onload = function() {
@@ -157,6 +159,10 @@
               done(xhr.responseText || '');
             }
           }
+        };
+        xhr.ontimeout = function() {
+          hideUploadOverlay();
+          reject(new Error('La operación tardó demasiado (2 min). Intenta con archivos más pequeños.'));
         };
         xhr.onerror = function() {
           hideUploadOverlay();

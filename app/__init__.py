@@ -1,5 +1,4 @@
 import os
-import tempfile
 import sys
 import traceback
 from dotenv import load_dotenv
@@ -16,11 +15,15 @@ def create_app():
     )
     app.config.from_object('app.config.Config')
 
-    upload_folder = tempfile.mkdtemp(prefix='pdfmerger_')
+    if sys.platform == 'win32':
+        import tempfile
+        upload_folder = tempfile.mkdtemp(prefix='pdfmerger_')
+    else:
+        upload_folder = '/tmp/pdfmerger'
     app.config['UPLOAD_FOLDER'] = upload_folder
 
     if not os.path.exists(upload_folder):
-        os.makedirs(upload_folder)
+        os.makedirs(upload_folder, exist_ok=True)
 
     from app.routes import init_routes
     init_routes(app)

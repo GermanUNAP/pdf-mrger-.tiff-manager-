@@ -144,7 +144,7 @@
     form.append('custom_h', document.getElementById('customH').value);
 
     try {
-      const xhr = await uploadWithProgress('/resize-pdf', form);
+      const xhr = await uploadWithProgress('/resize-pdf', form, 'Redimensionando PDF…');
       document.getElementById('progressFill').style.width = '100%';
       loadingText.textContent = 'Procesando resultado…';
       const blob = xhr.response;

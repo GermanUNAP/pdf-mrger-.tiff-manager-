@@ -199,7 +199,7 @@
     progressFill.style.width = '0%';
     loadingText.textContent = 'Subiendo archivos…';
     try {
-      const xhr = await uploadWithProgress('/merge', formData);
+      const xhr = await uploadWithProgress('/merge', formData, 'Fusionando PDFs…');
       progressFill.style.width = '100%';
       loadingText.textContent = 'Generando PDF final…';
       const blob = xhr.response;

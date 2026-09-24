@@ -168,7 +168,7 @@
     fd.append('pdf', currentFile);
     fd.append('pages', input);
     try {
-      const xhr = await uploadWithProgress('/remove-pages-pdf', fd);
+      const xhr = await uploadWithProgress('/remove-pages-pdf', fd, 'Quitando páginas…');
       const blob = xhr.response;
       downloadBlobUrl = URL.createObjectURL(blob);
       editorPhase.classList.add('hide');

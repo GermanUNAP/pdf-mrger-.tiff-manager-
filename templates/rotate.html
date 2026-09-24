@@ -241,7 +241,7 @@
       fd.append('pages', customPages.value.trim());
     }
     try {
-      const xhr = await uploadWithProgress('/rotate-pdf', fd);
+      const xhr = await uploadWithProgress('/rotate-pdf', fd, 'Rotando páginas…');
       const blob = xhr.response;
       downloadBlobUrl = URL.createObjectURL(blob);
       const rotatedStr = xhr.getResponseHeader('X-Rotated-Count') || '0';

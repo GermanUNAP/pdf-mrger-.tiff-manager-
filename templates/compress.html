@@ -141,7 +141,7 @@
     if (dpi !== '0') fd.append('dpi', dpi);
     fd.append('remove_meta', document.getElementById('removeMeta').checked ? '1' : '0');
     try {
-      const xhr = await uploadWithProgress('/compress-pdfs', fd);
+      const xhr = await uploadWithProgress('/compress-pdfs', fd, 'Comprimiendo PDFs…');
       document.getElementById('progressFill').style.width = '100%';
       const origSize = parseInt(xhr.getResponseHeader('X-Original-Size')) || 0;
       const compSize = parseInt(xhr.getResponseHeader('X-Compressed-Size')) || 0;
