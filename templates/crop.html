@@ -3,6 +3,7 @@
 {% block meta_description %}Crop and trim PDF page margins visually. Recortar márgenes de páginas PDF visualmente.{% endblock %}
 {% block head_scripts %}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 {% endblock %}
 
 {% block content %}
@@ -15,7 +16,7 @@
 
   <div class="info-card">
     <div class="info-card-row"><span class="label">How it works / Cómo funciona</span></div>
-    <p style="font-size:13px;color:#666;line-height:1.6;margin-top:8px">Upload a PDF, then drag the blue rectangle on each page to select the area to keep. Everything outside the rectangle will be trimmed. Adjust handles to resize. / Sube un PDF, luego arrastra el rectángulo azul en cada página para seleccionar el área a conservar. Todo fuera del rectángulo se recortará.</p>
+    <p style="font-size:13px;color:#666;line-height:1.6;margin-top:8px">Upload a PDF, then drag the blue rectangle on each page to select the area to keep. Everything outside the rectangle will be trimmed. The PDF is cropped directly in your browser — files are NOT uploaded. / Sube un PDF, luego arrastra el rectángulo azul en cada página para seleccionar el área a conservar. Todo fuera del rectángulo se recortará. El PDF se recorta directamente en tu navegador — los archivos NO se suben.</p>
   </div>
 
   <div id="uploadPhase">
@@ -66,6 +67,10 @@ let pdfDoc = null;
 let crops = [];
 let currentFile = null;
 
+const THUMB_W = 400;
+const THUMB_MAX_H = 2800;
+const RENDER_BATCH = 4;
+
 dropZone.addEventListener('click', () => fileInput.click());
 dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
 dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
@@ -75,7 +80,10 @@ fileInput.addEventListener('change', () => { if (fileInput.files.length) loadPDF
 async function loadPDF(file) {
   if (!file.name.toLowerCase().endsWith('.pdf')) { al('Solo PDFs', 'e'); return; }
   currentFile = file;
+  try { if (pdfDoc) pdfDoc.destroy(); } catch (e) {}
+  pdfDoc = null;
   uploadPhase.classList.add('hide');
+  editorPhase.classList.add('hide');
   loadingPhase.classList.remove('hide');
   loadingPhase.classList.add('active');
   const lt = document.getElementById('loadingText');
@@ -90,7 +98,14 @@ async function loadPDF(file) {
     lt.textContent = 'Parseando PDF…';
     ls.textContent = 'Paso 2/4: Parseando estructura PDF';
     lf.style.width = '25%';
-    pdfDoc = await pdfjsLib.getDocument({ data: buf }).promise;
+    try {
+      pdfDoc = await pdfjsLib.getDocument({ data: buf }).promise;
+    } catch (pe) {
+      if (pe && (pe.name === 'PasswordException' || /password/i.test(String(pe.message || '')))) {
+        throw new Error('El PDF está protegido con contraseña');
+      }
+      throw pe;
+    }
     const n = pdfDoc.numPages;
     if (n === 0) throw new Error('El PDF no tiene páginas');
     pageInfo.textContent = n + ' página' + (n !== 1 ? 's' : '');
@@ -99,7 +114,7 @@ async function loadPDF(file) {
     lf.style.width = '30%';
     await renderAllPages();
     lt.textContent = 'Listo';
-    ls.textContent = 'Paso 4/4: Completado';
+    ls.textContent = 'Paso 4/4: Completado (' + n + ' páginas)';
     lf.style.width = '100%';
     editorPhase.classList.remove('hide');
     loadingPhase.classList.add('hide');
@@ -129,48 +144,76 @@ async function renderAllPages() {
   const lf = document.getElementById('loadFill');
   const ls = document.getElementById('loadSub');
   const lt = document.getElementById('loadingText');
-  for (let i = 1; i <= n; i++) {
-    lt.textContent = 'Renderizando página ' + i + ' de ' + n + '…';
-    ls.textContent = 'Paso 3/4: Página ' + i + '/' + n;
-    lf.style.width = (30 + (i / n) * 65) + '%';
-    try {
-    const wrap = document.createElement('div');
-    wrap.className = 'pg-wrap';
-    const numEl = document.createElement('div');
-    numEl.className = 'pg-num';
-    numEl.textContent = 'Pág ' + i;
-    wrap.appendChild(numEl);
-    const inner = document.createElement('div');
-    inner.className = 'pg-inner';
-    inner.id = 'inner-' + i;
-    const canvas = document.createElement('canvas');
-    canvas.id = 'cv-' + i;
-    inner.appendChild(canvas);
-    wrap.appendChild(inner);
-    const ol = document.createElement('div');
-    ol.className = 'outside-overlay';
-    ol.id = 'ol-' + i;
-    inner.appendChild(ol);
-    pageGrid.appendChild(wrap);
-
-    const page = await pdfDoc.getPage(i);
-    const vp = page.getViewport({ scale: 1 });
-    const maxW = 500;
-    const scale = maxW / vp.width;
-    const sVp = page.getViewport({ scale });
-    canvas.width = sVp.width;
-    canvas.height = sVp.height;
-    const ctx = canvas.getContext('2d');
-    await page.render({ canvasContext: ctx, viewport: sVp }).promise;
-    initCropRect(i, inner, scale);
-    updateShade(i);
-    } catch (pageErr) {
-      throw new Error('Error en página ' + i + ': ' + pageErr.message);
-    }
+  let done = 0;
+  for (let base = 1; base <= n; base += RENDER_BATCH) {
+    const nums = [];
+    for (let i = base; i < base + RENDER_BATCH && i <= n; i++) nums.push(i);
+    const upto = base + nums.length - 1;
+    lt.textContent = 'Renderizando páginas ' + base + '–' + upto + ' de ' + n + '…';
+    ls.textContent = 'Paso 3/4: Página ' + done + '/' + n;
+    lf.style.width = (30 + (done / n) * 65) + '%';
+    await Promise.all(nums.map(async (i) => {
+      await renderOnePage(i);
+      done++;
+      ls.textContent = 'Paso 3/4: Página ' + done + '/' + n;
+      lf.style.width = (30 + (done / n) * 65) + '%';
+    }));
   }
 }
 
-function initCropRect(pageIdx, container, scale) {
+async function renderOnePage(i) {
+  const wrap = document.createElement('div');
+  wrap.className = 'pg-wrap';
+  const numEl = document.createElement('div');
+  numEl.className = 'pg-num';
+  numEl.textContent = 'Pág ' + i;
+  wrap.appendChild(numEl);
+  const inner = document.createElement('div');
+  inner.className = 'pg-inner';
+  inner.id = 'inner-' + i;
+  const canvas = document.createElement('canvas');
+  canvas.id = 'cv-' + i;
+  inner.appendChild(canvas);
+  wrap.appendChild(inner);
+  const ol = document.createElement('div');
+  ol.className = 'outside-overlay';
+  ol.id = 'ol-' + i;
+  inner.appendChild(ol);
+  pageGrid.appendChild(wrap);
+
+  let renderFailed = false;
+  try {
+    const page = await pdfDoc.getPage(i);
+    const vp = page.getViewport({ scale: 1 });
+    let scale = THUMB_W / vp.width;
+    let sVp = page.getViewport({ scale: scale });
+    if (sVp.height > THUMB_MAX_H) {
+      scale = scale * (THUMB_MAX_H / sVp.height);
+      sVp = page.getViewport({ scale: scale });
+    }
+    canvas.width = Math.max(1, Math.round(sVp.width));
+    canvas.height = Math.max(1, Math.round(sVp.height));
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    await page.render({ canvasContext: ctx, viewport: sVp }).promise;
+  } catch (pageErr) {
+    renderFailed = true;
+    if (!canvas.width) { canvas.width = 340; canvas.height = 470; }
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#dc2626';
+    ctx.font = '13px sans-serif';
+    ctx.fillText('No se pudo renderizar esta página', 10, 24);
+  }
+  initCropRect(i, inner);
+  updateShade(i);
+  updateLabel(i - 1);
+  return renderFailed;
+}
+
+function initCropRect(pageIdx, container) {
   const idx = pageIdx - 1;
   const rect = document.createElement('div');
   rect.className = 'crop-rect active';
@@ -185,8 +228,9 @@ function initCropRect(pageIdx, container, scale) {
   label.id = 'dl-' + pageIdx;
   rect.appendChild(label);
   container.appendChild(rect);
-  const cw = container.offsetWidth || container.querySelector('canvas').width;
-  const ch = container.querySelector('canvas').height;
+  const canvas = container.querySelector('canvas');
+  const cw = container.offsetWidth || (canvas ? canvas.width : 340);
+  const ch = canvas ? canvas.height : 470;
   rect.style.left = '0px';
   rect.style.top = '0px';
   rect.style.width = cw + 'px';
@@ -197,7 +241,7 @@ function initCropRect(pageIdx, container, scale) {
 function addCropDrag(rect, container, idx) {
   let state = null;
   const handles = rect.querySelectorAll('.handle');
-  const getBounds = () => { const pw = container.querySelector('canvas').width; const ph = container.querySelector('canvas').height; return { pw, ph }; };
+  const getBounds = () => { const canvas = container.querySelector('canvas'); return { pw: canvas.width, ph: canvas.height }; };
   const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
   const toPct = (l, t, w, h, b) => ({ x: l / b.pw, y: t / b.ph, w: w / b.pw, h: h / b.ph });
 
@@ -262,8 +306,9 @@ function updateShade(pageIdx) {
   if (!ol) { ol = document.createElement('div'); ol.className = 'outside-overlay'; ol.id = 'ol-' + pageIdx; inner.appendChild(ol); }
   ol.innerHTML = '';
   const c = crops[idx];
-  const pw = inner.querySelector('canvas').width || 500;
-  const ph = inner.querySelector('canvas').height || 500;
+  const canvas = inner.querySelector('canvas');
+  const pw = (canvas && canvas.width) || 500;
+  const ph = (canvas && canvas.height) || 500;
   const l = c.x * pw, t = c.y * ph, w = c.w * pw, h = c.h * ph;
   const regions = [
     { l: 0, t: 0, w: pw, h: t },
@@ -281,24 +326,29 @@ function updateShade(pageIdx) {
   }
 }
 
+function syncRectToCrop(idx) {
+  const inner = document.getElementById('inner-' + (idx + 1));
+  if (!inner) return;
+  const rect = inner.querySelector('.crop-rect');
+  if (!rect) return;
+  const canvas = inner.querySelector('canvas');
+  const pw = canvas.width, ph = canvas.height;
+  const c = crops[idx];
+  rect.style.left = (c.x * pw) + 'px';
+  rect.style.top = (c.y * ph) + 'px';
+  rect.style.width = (c.w * pw) + 'px';
+  rect.style.height = (c.h * ph) + 'px';
+  updateShade(idx + 1);
+  updateLabel(idx);
+}
+
 btnApplyAll.addEventListener('click', () => {
   const n = crops.length;
   if (!n) return;
   const ref = crops[0];
-  for (let i = 1; i < n; i++) crops[i] = { ...ref };
   for (let i = 0; i < n; i++) {
-    const inner = document.getElementById('inner-' + (i + 1));
-    if (!inner) continue;
-    const rect = inner.querySelector('.crop-rect');
-    const pw = inner.querySelector('canvas').width;
-    const ph = inner.querySelector('canvas').height;
-    const c = crops[i];
-    rect.style.left = (c.x * pw) + 'px';
-    rect.style.top = (c.y * ph) + 'px';
-    rect.style.width = (c.w * pw) + 'px';
-    rect.style.height = (c.h * ph) + 'px';
-    updateShade(i + 1);
-    updateLabel(i);
+    crops[i] = { ...ref };
+    syncRectToCrop(i);
   }
   al('Recorte aplicado a todas las páginas', 's');
 });
@@ -306,50 +356,109 @@ btnApplyAll.addEventListener('click', () => {
 btnReset.addEventListener('click', () => {
   if (!crops.length) return;
   crops[0] = { x: 0, y: 0, w: 1, h: 1 };
-  const inner = document.getElementById('inner-1');
-  if (inner) {
-    const rect = inner.querySelector('.crop-rect');
-    const pw = inner.querySelector('canvas').width;
-    const ph = inner.querySelector('canvas').height;
-    rect.style.left = '0px'; rect.style.top = '0px'; rect.style.width = pw + 'px'; rect.style.height = ph + 'px';
-    updateShade(1); updateLabel(0);
-  }
+  syncRectToCrop(0);
 });
 
 btnResetAll.addEventListener('click', () => {
   const n = crops.length;
   for (let i = 0; i < n; i++) {
     crops[i] = { x: 0, y: 0, w: 1, h: 1 };
-    const inner = document.getElementById('inner-' + (i + 1));
-    if (inner) {
-      const rect = inner.querySelector('.crop-rect');
-      const pw = inner.querySelector('canvas').width;
-      const ph = inner.querySelector('canvas').height;
-      rect.style.left = '0px'; rect.style.top = '0px'; rect.style.width = pw + 'px'; rect.style.height = ph + 'px';
-      updateShade(i + 1); updateLabel(i);
-    }
+    syncRectToCrop(i);
   }
   al('Todas las páginas restablecidas', 'i');
 });
 
-btnDownload.addEventListener('click', async () => {
-  if (!currentFile) { al('No hay archivo PDF', 'e'); return; }
-  btnDownload.disabled = true; btnDownload.textContent = 'Procesando\u2026';
+function clamp01(v) { v = Number(v); if (!isFinite(v)) return 0; return Math.max(0, Math.min(1, v)); }
+
+function applyCropBox(page, c) {
+  const mb = page.getMediaBox();
+  let x = clamp01(c.x), y = clamp01(c.y), w = clamp01(c.w), h = clamp01(c.h);
+  if (w < 0.01 || h < 0.01) { x = 0; y = 0; w = 1; h = 1; }
+  if (x + w > 1) w = 1 - x;
+  if (y + h > 1) h = 1 - y;
+  if (w < 0.01 || h < 0.01) { x = 0; y = 0; w = 1; h = 1; }
+  const bw = mb.width, bh = mb.height;
+  const left = mb.x + bw * x;
+  const bottom = mb.y + bh * (1 - y - h);
+  const cw = Math.max(1, bw * w);
+  const chh = Math.max(1, bh * h);
+  page.setCropBox(left, bottom, cw, chh);
+  try { page.setTrimBox(left, bottom, cw, chh); } catch (e) {}
+  try { page.setBleedBox(left, bottom, cw, chh); } catch (e) {}
+  try { page.setArtBox(left, bottom, cw, chh); } catch (e) {}
+}
+
+function downloadBytes(bytes, name) {
+  const blob = new Blob([bytes], { type: 'application/pdf' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+async function cropInBrowser() {
+  showUploadOverlay('Recortando PDF en tu navegador…');
+  updateUploadOverlay(5, 'Leyendo archivo…');
+  try {
+    const bytes = await currentFile.arrayBuffer();
+    updateUploadOverlay(20, 'Parseando PDF…');
+    const doc = await PDFLib.PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false });
+    const pages = doc.getPages();
+    const total = pages.length;
+    for (let i = 0; i < total; i++) {
+      const c = crops[i] || crops[crops.length - 1] || { x: 0, y: 0, w: 1, h: 1 };
+      applyCropBox(pages[i], c);
+      if (i % 6 === 5 || i === total - 1) {
+        updateUploadOverlay(20 + ((i + 1) / total) * 65, 'Página ' + (i + 1) + '/' + total);
+        await new Promise(r => setTimeout(r, 0));
+      }
+    }
+    updateUploadOverlay(90, 'Generando PDF…');
+    const out = await doc.save({ useObjectStreams: true });
+    updateUploadOverlay(100, 'Listo');
+    downloadBytes(out, 'pdf_recortado.pdf');
+    al('PDF recortado descargado (' + total + ' página' + (total !== 1 ? 's' : '') + ')', 's');
+  } finally {
+    hideUploadOverlay();
+  }
+}
+
+async function cropOnServer() {
   const fd = new FormData();
   fd.append('pdf', currentFile);
   fd.append('crops', JSON.stringify(crops));
+  const xhr = await uploadWithProgress('/crop-pdf', fd, 'Recortando PDF…');
+  const blob = xhr.response;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'pdf_recortado.pdf';
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  al('PDF recortado descargado', 's');
+}
+
+btnDownload.addEventListener('click', async () => {
+  if (!currentFile) { al('No hay archivo PDF', 'e'); return; }
+  if (!crops.length) { al('Carga un PDF primero', 'e'); return; }
+  btnDownload.disabled = true;
+  const origText = 'Recortar y Descargar';
+  btnDownload.textContent = 'Procesando…';
   try {
-    const xhr = await uploadWithProgress('/crop-pdf', fd, 'Recortando PDF…');
-    const blob = xhr.response;
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = 'pdf_recortado.pdf';
-    document.body.appendChild(a); a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 10000);
-    al('PDF recortado descargado', 's');
-  } catch (e) { al(e.message || 'Error de conexión', 'e'); }
-  btnDownload.disabled = false; btnDownload.textContent = 'Recortar y Descargar';
+    if (typeof PDFLib !== 'undefined') {
+      await cropInBrowser();
+    } else {
+      await cropOnServer();
+    }
+  } catch (e) {
+    al('Error al recortar: ' + (e && e.message ? e.message : e), 'e');
+  }
+  btnDownload.disabled = false;
+  btnDownload.textContent = origText;
 });
 </script>
 {% endblock %}

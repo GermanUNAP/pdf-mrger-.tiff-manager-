@@ -237,12 +237,6 @@ def init_routes(app):
             with open(output, 'wb') as f:
                 writer.write(f)
 
-            try:
-                with pikepdf.open(output) as pdf:
-                    pdf.save(output, compress_streams=True)
-            except Exception:
-                pass
-
             log_usage('crop_pdf', pages_in=num_pages, pages_out=num_pages,
                       file_size=os.path.getsize(tmp_path),
                       file_size_out=os.path.getsize(output),
