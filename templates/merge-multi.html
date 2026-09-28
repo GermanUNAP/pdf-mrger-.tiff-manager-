@@ -2,17 +2,17 @@
 {% block title %}Merge Multiple PDFs - Combine PDF Files | Unir PDFs{% endblock %}
 {% block meta_description %}Combine multiple PDF files into one document. Drag and drop to reorder. Unir múltiples archivos PDF en uno solo.{% endblock %}
 {% block head_scripts %}
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 {% endblock %}
 
 {% block content %}
 <div class="container">
   <h1>Unir PDFs</h1>
-  <p class="sub">Selecciona varios PDFs y ordénalos con drag & drop. Se unirán en ese orden.</p>
+  <p class="sub">Selecciona varios PDFs y ordénalos con drag & drop. Se unirán en ese orden. Los archivos se procesan en tu navegador: sin límite de tamaño y sin subir nada a un servidor.</p>
 
   <div class="info-card">
     <div class="info-card-row"><span class="label">How it works / Cómo funciona</span></div>
-    <p style="font-size:13px;color:#666;line-height:1.6;margin-top:8px">Select multiple PDFs, drag and drop to reorder them, then merge into a single document. The final order is exactly as you arrange it. / Selecciona varios PDFs, reordénalos con drag and drop, y únelos en un solo documento. El orden final es exactamente como lo acomodes.</p>
+    <p style="font-size:13px;color:#666;line-height:1.6;margin-top:8px">Select multiple PDFs, drag and drop to reorder them, then merge into a single document. Everything runs locally in your browser — no uploads, no size limits. / Selecciona varios PDFs, reordénalos con drag and drop, y únelos en un solo documento. Todo se procesa localmente en tu navegador: sin subidas ni límites de tamaño.</p>
   </div>
 
   <div id="alerts"></div>
@@ -24,7 +24,7 @@
         <div class="ic">+</div>
         <p>Arrastra PDFs aquí o haz click para seleccionar</p>
       </div>
-      <input type="file" id="fileInput" accept=".pdf" multiple class="hide">
+      <input type="file" id="fileInput" accept=".pdf,application/pdf" multiple class="hide">
     </div>
 
     <div class="sec">
@@ -32,6 +32,7 @@
       <ul class="sort-list" id="sortList">
         <li style="color:#aaa; justify-content:center; cursor:default; border-style:dashed;"><span>— No hay archivos —</span></li>
       </ul>
+      <div id="totals" style="display:none;margin-top:8px;padding:8px 12px;background:#f0f4ff;border-radius:6px;font-size:13px;color:#4a6cf7;font-weight:500"></div>
     </div>
 
     <button class="btn btn-p" id="btnMerge" onclick="unir()" disabled>Unir PDFs</button>
@@ -53,6 +54,7 @@
       <div class="desc">páginas en total</div>
       <div class="desc" style="margin-top:4px; color:#888; font-size:13px;">
         <span id="resFiles">0</span> archivos unidos
+        <span id="resSize" style="margin-left:8px"></span>
       </div>
       <a class="btn btn-g" id="btnDwl" style="margin-top:16px; display:none;">Descargar PDF unido</a>
       <button class="btn btn-o" onclick="resetear()" style="margin-top:8px;">Unir otro</button>
@@ -63,12 +65,56 @@
 
 {% block scripts %}
 <script>
-  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
   const dropZone = document.getElementById('dropZone');
   const fileInput = document.getElementById('fileInput');
   const sortList = document.getElementById('sortList');
   const btnMerge = document.getElementById('btnMerge');
-  let files = [];
+  const loadingPhase = document.getElementById('loadingPhase');
+  const loadingText = document.getElementById('loadingText');
+  const loadFill = document.getElementById('loadFill');
+  const loadSub = document.getElementById('loadSub');
+  const totals = document.getElementById('totals');
+
+  let items = [];
+  let busy = false;
+
+  const hasPdfLib = typeof PDFLib !== 'undefined';
+  if (!hasPdfLib) {
+    al('No se pudo cargar la librería de PDF. Se usará el servidor (puede haber límites de tamaño).', 'i');
+  }
+
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function(c) {
+      return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
+    });
+  }
+
+  function fmtSize(b) {
+    if (!b && b !== 0) return '0 B';
+    var u = ['B','KB','MB','GB'], i = 0, s = b;
+    while (s >= 1024 && i < u.length - 1) { s /= 1024; i++; }
+    return s.toFixed(i > 0 ? 1 : 0) + ' ' + u[i];
+  }
+
+  function showLoading(text, pct, sub) {
+    loadingText.textContent = text;
+    loadFill.style.width = ((pct || 0) * 100) + '%';
+    loadSub.textContent = sub || '';
+    loadingPhase.classList.remove('hide');
+    loadingPhase.classList.add('active');
+  }
+
+  function setLoading(text, pct, sub) {
+    if (text) loadingText.textContent = text;
+    if (pct !== undefined) loadFill.style.width = (pct * 100) + '%';
+    if (sub !== undefined) loadSub.textContent = sub;
+  }
+
+  function hideLoading() {
+    loadingPhase.classList.add('hide');
+    loadingPhase.classList.remove('active');
+    loadFill.style.width = '0%';
+  }
 
   dropZone.addEventListener('click', () => fileInput.click());
   dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
@@ -83,74 +129,104 @@
     fileInput.value = '';
   });
 
-  async function addFiles(newFiles) {
-    const valid = [];
-    for (const f of newFiles) {
-      if (!f.name.toLowerCase().endsWith('.pdf')) { al('Solo PDFs: ' + f.name, 'e'); continue; }
-      if (!files.find(x => x.name === f.name && x.size === f.size)) {
-        files.push(f);
-        valid.push(f);
-      }
-    }
-    if (!valid.length) { renderList(); return; }
-    renderList();
-    const loadingPhase = document.getElementById('loadingPhase');
-    const loadingText = document.getElementById('loadingText');
-    const loadFill = document.getElementById('loadFill');
-    const loadSub = document.getElementById('loadSub');
-    loadingPhase.classList.remove('hide');
-    loadingPhase.classList.add('active');
-    try {
-      for (let i = 0; i < valid.length; i++) {
-        const f = valid[i];
-        loadingText.textContent = 'Analizando ' + f.name + '…';
-        loadSub.textContent = 'Archivo ' + (i + 1) + '/' + valid.length + ': ' + f.name;
-        loadFill.style.width = ((i / valid.length) * 100) + '%';
-        f._pages = await getPageCount(f);
-        loadFill.style.width = (((i + 1) / valid.length) * 100) + '%';
-        renderList();
-      }
-      loadingText.textContent = 'Listo';
-      loadSub.textContent = 'Archivos analizados';
-      loadFill.style.width = '100%';
-    } finally {
-      setTimeout(() => {
-        loadingPhase.classList.add('hide');
-        loadingPhase.classList.remove('active');
-        loadFill.style.width = '0%';
-      }, 400);
-    }
+  function readyItems() {
+    return items.filter(function(i) { return i.state === 'ready' && i.doc; });
   }
 
-  async function getPageCount(f) {
+  function updateTotals() {
+    const ready = readyItems();
+    if (!ready.length) { totals.style.display = 'none'; return; }
+    var pages = 0, size = 0;
+    ready.forEach(function(i) { pages += i.pages; size += i.file.size; });
+    totals.style.display = '';
+    totals.textContent = ready.length + ' archivo' + (ready.length !== 1 ? 's' : '') +
+      ' · ' + pages + ' página' + (pages !== 1 ? 's' : '') + ' · ' + fmtSize(size) +
+      (hasPdfLib ? ' · se une en tu navegador' : '');
+  }
+
+  async function loadDoc(file) {
+    const buf = await file.arrayBuffer();
+    const doc = await PDFLib.PDFDocument.load(buf, { ignoreEncryption: true });
+    const n = doc.getPageCount();
+    if (!n) throw new Error('El PDF no tiene páginas');
+    return { doc: doc, pages: n };
+  }
+
+  async function addFiles(fileList) {
+    if (busy) return;
+    const incoming = [];
+    for (const f of fileList) {
+      if (!f.name.toLowerCase().endsWith('.pdf')) { al('Solo PDFs: ' + f.name, 'e'); continue; }
+      if (items.some(function(x) { return x.file.name === f.name && x.file.size === f.size; })) continue;
+      const item = { file: f, doc: null, pages: 0, state: 'loading', error: null };
+      items.push(item);
+      incoming.push(item);
+    }
+    renderList();
+    if (!incoming.length) return;
+
+    busy = true;
+    showLoading('Analizando archivos…', 0, '0/' + incoming.length + ' listos');
+    var done = 0;
     try {
-      var buf = await Promise.race([
-        f.arrayBuffer(),
-        new Promise(function(_, rej) { setTimeout(function() { rej(new Error('timeout')); }, 8000); })
-      ]);
-      if (buf.byteLength === 0) return '?';
-      var doc = await Promise.race([
-        pdfjsLib.getDocument({ data: buf }).promise,
-        new Promise(function(_, rej) { setTimeout(function() { rej(new Error('timeout')); }, 8000); })
-      ]);
-      var n = doc.numPages;
-      doc.destroy();
-      return n;
-    } catch (e) {
-      return '?';
+      await Promise.all(incoming.map(async function(item) {
+        try {
+          if (!hasPdfLib) throw new Error('sin-libreria');
+          const r = await loadDoc(item.file);
+          item.doc = r.doc;
+          item.pages = r.pages;
+          item.state = 'ready';
+        } catch (e) {
+          item.state = 'error';
+          item.error = (e && e.message) ? e.message : 'No se pudo leer';
+          if (item.error === 'sin-libreria') item.error = 'Se unirá en el servidor';
+        } finally {
+          done++;
+          setLoading('Analizando archivos…', done / incoming.length, done + '/' + incoming.length + ' listos');
+          renderList();
+        }
+      }));
+    } finally {
+      busy = false;
+      setLoading('Listo', 1, 'Archivos analizados');
+      setTimeout(hideLoading, 350);
+      const failed = incoming.filter(function(i) { return i.state === 'error'; });
+      if (failed.length) al(failed.length + ' archivo(s) no se pudieron leer y se omitirán.', 'e');
+      updateTotals();
+      renderList();
     }
   }
 
   function renderList() {
     sortList.innerHTML = '';
-    if (!files.length) {
+    if (!items.length) {
       sortList.innerHTML = '<li style="color:#aaa;justify-content:center;cursor:default;border-style:dashed"><span>— No hay archivos —</span></li>';
-      btnMerge.disabled = true; return;
+      btnMerge.disabled = true;
+      updateTotals();
+      return;
     }
-    files.forEach((f, i) => {
-      const li = document.createElement('li');
-      li.draggable = true; li.dataset.index = i;
-      li.innerHTML = '<span class="handle">⠿</span><span class="name">' + f.name + '</span><span class="pages">' + (f._pages || '?') + ' pág' + (f._pages !== 1 ? 's' : '') + '</span><span class="del" onclick="removeFile(' + i + ')">✕</span>';
+    items.forEach(function(item, i) {
+      var f = item.file;
+      var li = document.createElement('li');
+      li.draggable = true;
+      li.dataset.index = i;
+      if (item.state === 'error') li.style.opacity = '0.55';
+
+      var status;
+      if (item.state === 'loading') status = '<span class="pages">analizando…</span>';
+      else if (item.state === 'error') status = '<span class="pages" style="color:#dc2626">error</span>';
+      else status = '<span class="pages">' + item.pages + ' pág' + (item.pages !== 1 ? 's' : '') + ' · ' + fmtSize(f.size) + '</span>';
+
+      li.innerHTML =
+        '<span class="handle">⠿</span>' +
+        '<span class="name" title="' + esc(f.name) + '">' + esc(f.name) + '</span>' +
+        status +
+        '<span class="del" data-i="' + i + '">✕</span>';
+
+      li.querySelector('.del').addEventListener('click', function(ev) {
+        ev.stopPropagation();
+        removeFile(parseInt(ev.target.dataset.i, 10));
+      });
       li.addEventListener('dragstart', onDragStart);
       li.addEventListener('dragend', onDragEnd);
       li.addEventListener('dragover', onDragOver);
@@ -159,14 +235,22 @@
       li.addEventListener('drop', onDrop);
       sortList.appendChild(li);
     });
-    btnMerge.disabled = false;
+
+    const ok = items.some(function(i) { return i.state === 'ready'; });
+    btnMerge.disabled = busy || !ok;
+    updateTotals();
   }
 
-  function removeFile(i) { files.splice(i, 1); renderList(); }
+  function removeFile(i) {
+    if (busy) return;
+    if (items[i]) items[i].doc = null;
+    items.splice(i, 1);
+    renderList();
+  }
 
   let dragSrcIdx = null;
-  function onDragStart(e) { dragSrcIdx = parseInt(e.target.dataset.index); e.target.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', ''); }
-  function onDragEnd(e) { e.target.classList.remove('dragging'); document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over')); }
+  function onDragStart(e) { dragSrcIdx = parseInt(e.target.dataset.index, 10); e.target.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', ''); }
+  function onDragEnd(e) { e.target.classList.remove('dragging'); document.querySelectorAll('.drag-over').forEach(function(el) { el.classList.remove('drag-over'); }); }
   function onDragOver(e) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }
   function onDragEnter(e) { e.preventDefault(); if (e.target.tagName === 'LI') e.target.classList.add('drag-over'); }
   function onDragLeave(e) { e.target.classList.remove('drag-over'); }
@@ -174,10 +258,10 @@
     e.preventDefault();
     const targetLi = e.target.closest('li');
     if (!targetLi) return;
-    const targetIdx = parseInt(targetLi.dataset.index);
-    if (dragSrcIdx === null || dragSrcIdx === targetIdx) return;
-    const [moved] = files.splice(dragSrcIdx, 1);
-    files.splice(targetIdx, 0, moved);
+    const targetIdx = parseInt(targetLi.dataset.index, 10);
+    if (dragSrcIdx === null || isNaN(targetIdx) || dragSrcIdx === targetIdx) return;
+    const [moved] = items.splice(dragSrcIdx, 1);
+    items.splice(targetIdx, 0, moved);
     dragSrcIdx = null;
     renderList();
   }
@@ -189,38 +273,103 @@
     const box = document.getElementById('toast');
     if (!box) return;
     box.appendChild(el);
-    setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 300); }, 4000);
+    setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 300); }, 4500);
+  }
+
+  function showResult(pageCount, fileCount, sizeBytes, blob) {
+    const url = URL.createObjectURL(blob);
+    const dlBtn = document.getElementById('btnDwl');
+    dlBtn.href = url;
+    dlBtn.download = 'pdf_unido.pdf';
+    dlBtn.style.display = '';
+    document.getElementById('resPages').textContent = pageCount;
+    document.getElementById('resFiles').textContent = fileCount;
+    document.getElementById('resSize').textContent = '· ' + fmtSize(sizeBytes);
+    document.getElementById('pIn').classList.add('hide');
+    document.getElementById('pOut').classList.remove('hide');
+    try { dlBtn.click(); } catch (e) {}
+    al('PDF unido listo (' + pageCount + ' páginas)', 's');
+  }
+
+  async function mergeClient(ready) {
+    const out = await PDFLib.PDFDocument.create();
+    for (var i = 0; i < ready.length; i++) {
+      const src = ready[i].doc;
+      const indices = src.getPageIndices();
+      const copied = await out.copyPages(src, indices);
+      copied.forEach(function(p) { out.addPage(p); });
+      setLoading('Uniendo archivos…', (i + 1) / (ready.length + 1),
+        (i + 1) + '/' + ready.length + ' archivos (' + ready[i].file.name + ')');
+      await new Promise(function(r) { setTimeout(r, 0); });
+    }
+    const pageCount = out.getPageCount();
+    setLoading('Generando PDF final…', 0.95, pageCount + ' páginas');
+    const bytes = await out.save();
+    return { pageCount: pageCount, bytes: bytes };
+  }
+
+  async function mergeServer(ready) {
+    const fd = new FormData();
+    ready.forEach(function(i) { fd.append('files[]', i.file); });
+    fd.append('order', JSON.stringify(ready.map(function(_, i) { return i; })));
+    const xhr = await uploadWithProgress('/merge-multi', fd,
+      'Uniendo ' + ready.length + ' PDF(s) en el servidor…');
+    const blob = xhr.response;
+    if (!blob || blob.size === 0) throw new Error('El servidor devolvió un archivo vacío.');
+    let pageCount = '?';
+    try {
+      if (hasPdfLib) {
+        const probe = await PDFLib.PDFDocument.load(await blob.arrayBuffer(), { ignoreEncryption: true });
+        pageCount = probe.getPageCount();
+      }
+    } catch (e) {}
+    return { pageCount: pageCount, blob: blob };
   }
 
   async function unir() {
-    if (!files.length) return;
-    btnMerge.disabled = true; btnMerge.textContent = 'Uniendo...';
-    const fd = new FormData();
-    for (const f of files) fd.append('files[]', f);
-    fd.append('order', JSON.stringify(files.map((_, i) => i)));
+    if (busy) return;
+    const ready = readyItems();
+    if (!ready.length) { al('Agrega al menos un PDF válido', 'e'); return; }
+
+    busy = true;
+    btnMerge.disabled = true;
+    btnMerge.textContent = 'Uniendo…';
+    showLoading('Uniendo ' + ready.length + ' PDF(s)…', 0, 'Preparando');
+
     try {
-      const xhr = await uploadWithProgress('/merge-multi', fd, 'Uniendo ' + files.length + ' PDF(s)…');
-      const blob = xhr.response;
-      if (!blob || blob.size === 0) throw new Error('El servidor devolvió un archivo vacío.');
-      const url = URL.createObjectURL(blob);
-      const dlBtn = document.getElementById('btnDwl');
-      dlBtn.href = url;
-      dlBtn.download = 'pdf_unido.pdf';
-      dlBtn.style.display = '';
-      document.getElementById('resPages').textContent = 'Listo';
-      document.getElementById('resFiles').textContent = files.length;
-      document.getElementById('pIn').classList.add('hide');
-      document.getElementById('pOut').classList.remove('hide');
-      al('PDF unido listo para descargar', 's');
-    } catch (e) { al(e.message || 'Error de conexión', 'e'); }
-    btnMerge.disabled = false; btnMerge.textContent = 'Unir PDFs';
+      if (hasPdfLib) {
+        try {
+          const r = await mergeClient(ready);
+          const blob = new Blob([r.bytes], { type: 'application/pdf' });
+          showResult(r.pageCount, ready.length, blob.size, blob);
+        } catch (clientErr) {
+          setLoading('Reintentando en el servidor…', 0.3, clientErr.message || '');
+          const r = await mergeServer(ready);
+          showResult(r.pageCount, ready.length, r.blob.size, r.blob);
+        }
+      } else {
+        const r = await mergeServer(ready);
+        showResult(r.pageCount, ready.length, r.blob.size, r.blob);
+      }
+    } catch (e) {
+      al(e.message || 'Error al unir los PDFs', 'e');
+    } finally {
+      busy = false;
+      hideLoading();
+      btnMerge.disabled = false;
+      btnMerge.textContent = 'Unir PDFs';
+      renderList();
+    }
   }
 
   function resetear() {
-    files = [];
+    items.forEach(function(i) { i.doc = null; });
+    items = [];
     document.getElementById('pIn').classList.remove('hide');
     document.getElementById('pOut').classList.add('hide');
     renderList();
   }
+
+  renderList();
 </script>
 {% endblock %}
